@@ -1,5 +1,4 @@
 """module to calculate activities"""
-from typing import Dict
 
 from isotopes import ZAID
 from toolz import merge_with
@@ -9,7 +8,7 @@ from batman.solver.utils import RunData
 from batman.units import Bq
 
 
-def _get_single_activities(data: RunData) -> Dict[ZAID, Bq]:
+def _get_single_activities(data: RunData) -> dict[ZAID, Bq]:
     """Calculate activity in Becquerel per unstable isotope"""
     dep, mixture, vol = data
     zaids, decay_model, _ = dep
@@ -17,6 +16,6 @@ def _get_single_activities(data: RunData) -> Dict[ZAID, Bq]:
             (dec := decay_model.mat[i, i]) and (nd := mixture.get(zaid))}
 
 
-def activities(data: EasyData) -> Dict[ZAID, Bq]:
+def activities(data: EasyData) -> dict[ZAID, Bq]:
     """Calculate activity in Becquerel per unstable isotope"""
     return merge_with(sum, *data.map(_get_single_activities))

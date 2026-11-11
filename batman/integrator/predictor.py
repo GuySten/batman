@@ -1,9 +1,9 @@
 """Simple forward predictor.
 
 """
+from collections.abc import Sequence
 from functools import partial
 from math import exp
-from typing import Sequence
 
 from coremaker.protocols.mixture import Mixture
 

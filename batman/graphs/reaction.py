@@ -3,7 +3,8 @@ held in nodes and edges, and in that fact that they cannot be auto-generated,
 and must be introduced externally, so their API should probably be nicer.
 
 """
-from typing import Hashable, Iterable, NoReturn
+from collections.abc import Hashable, Iterable
+from typing import NoReturn
 
 import networkx as nx
 from reactions import ReactionRate

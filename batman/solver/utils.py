@@ -1,9 +1,9 @@
 """Common tools for the batman expo
 
 """
+from collections.abc import Sequence
 from contextlib import contextmanager
 from logging import captureWarnings
-from typing import Sequence, Tuple
 
 import numpy as np
 from coremaker.protocols.mixture import Mixture
@@ -30,8 +30,8 @@ def mixture_to_nd(mixture: Mixture, isos: Sequence[ZAID], *,
                        count=len(isos))
 
 
-DepletionData = Tuple[Sequence[ZAID], DecayModel, ReactionModel]
-RunData = Tuple[DepletionData, Mixture, Volume]
+DepletionData = tuple[Sequence[ZAID], DecayModel, ReactionModel]
+RunData = tuple[DepletionData, Mixture, Volume]
 
 
 def append_doc_of(f):

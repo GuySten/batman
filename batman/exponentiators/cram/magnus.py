@@ -14,7 +14,7 @@ These authors describe a commutator free magnus method based on CRAM which is
 correct up to 5th order in t. This version uses 2 CRAM operations per time step.
 
 """
-from typing import Iterable
+from collections.abc import Iterable
 
 import numpy as np
 import scipy.sparse as sp

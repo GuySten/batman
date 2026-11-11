@@ -7,7 +7,7 @@ dependencies:
   - more-itertools
   - multipledispatch
   - ramp-isotopes
-  - ramp-endf
+  - endf>=0.1.12
   - ramp-coremaker
   - ramp-reactions
   - dask

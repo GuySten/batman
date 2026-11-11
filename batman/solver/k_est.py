@@ -12,8 +12,14 @@ from batman.units import MW
 from .inputs import EasyData
 from .utils import RunData, mixture_to_nd
 
-__all__ = ['estimate_k', 'calculate_losses', 'deriv_k', 'absorption',
-           'production', 'calculate_loss_factor']
+__all__ = [
+    'absorption',
+    'calculate_loss_factor',
+    'calculate_losses',
+    'deriv_k',
+    'estimate_k',
+    'production',
+]
 
 
 def estimate_k(data: EasyData, loss_factor: float) -> float:

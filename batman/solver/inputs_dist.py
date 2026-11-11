@@ -11,8 +11,9 @@ programming over is quite nice. So we go through the trouble of making this Bag.
 
 """
 import logging
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from functools import partial
-from typing import Any, Callable, Dict, FrozenSet, Generator, Iterable, List, Sequence, Tuple, Type, TypeVar
+from typing import Any, Self, TypeVar
 
 import numpy as np
 from coremaker.protocols.mixture import Mixture
@@ -31,7 +32,6 @@ __all__ = ["DistEasyData"]
 
 modlogger = logging.getLogger('batman.expo.input_dist')
 
-_Tv = TypeVar('_Tv', bound="DistEasyData")
 T = TypeVar('T')
 
 try:
@@ -58,9 +58,9 @@ class DistEasyData(EasyData):
         return type(self)(self.bag)
 
     @classmethod
-    def from_input(cls: Type[_Tv], data: InputData, *,
+    def from_input(cls, data: InputData, *,
                    dtype: str = 'float64',
-                   partitions: int = 1) -> _Tv:
+                   partitions: int = 1) -> Self:
         """Make Distributed EasyData from a local InputData.
 
         Parameters
@@ -128,7 +128,7 @@ class DistEasyData(EasyData):
         mixs = _from_sequence(mixs, n=self.bag.npartitions)
         self.bag = self.bag.map(_update_single_mixture, mixs).persist()
 
-    def __iter__(self) -> Generator[RunData, None, None]:
+    def __iter__(self) -> Iterator[RunData]:
         yield from self.bag.flatten().compute()
 
     def __len__(self) -> int:
@@ -165,8 +165,8 @@ def _zip(fbag: Bag, *bags: Bag) -> Bag:
     return fbag.map(lambda *x: tuple(x), *bags)
 
 
-ModelInput = Tuple[DecayGraph, Iterable[ReactionType], GraphFilter,
-FrozenSet[ZAID]]
+ModelInput = tuple[DecayGraph, Iterable[ReactionType], GraphFilter,
+frozenset[ZAID]]
 
 
 def _depletion(comp: ModelInput, *,
@@ -179,8 +179,8 @@ def _depletion(comp: ModelInput, *,
 def _reacmodel(rr: Iterable[ReactionRate], *,
                rfilter: Callable[[ReactionRate], bool],
                isotopes: Sequence[ZAID],
-               accumulate: FrozenSet[ZAID],
-               fiss_vecs: Dict[ReactionType, np.ndarray],
+               accumulate: frozenset[ZAID],
+               fiss_vecs: dict[ReactionType, np.ndarray],
                dtype: str) -> ReactionModel:
     reacts = filter(rfilter, rr)
     return ReactionModel(
@@ -223,7 +223,7 @@ def _get_depargs(comp: ComponentData):
 
 def _expand(shortit: Sequence[T],
             length: int,
-            mp: Dict[int, int]) -> List[T]:
+            mp: dict[int, int]) -> list[T]:
     return [shortit[mp[i]] for i in range(length)]
 
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Module used to solve the Bateman's Equation.
 
 This is a fancy name for a time-dependent matrix equation:

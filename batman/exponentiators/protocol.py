@@ -1,7 +1,8 @@
 """Exponentiator agreed upon protocol
 
 """
-from typing import Callable, Protocol
+from collections.abc import Callable
+from typing import Protocol
 
 from numpy import ndarray
 from scipy.sparse import csr_matrix

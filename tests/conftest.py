@@ -39,5 +39,4 @@ def allclose(first: Mixture, second: Mixture, *, comparator=np.isclose,
             print(f'Mixtures differ on {key}, with values {first.get(key)}, '
                   f'{second.get(key)} correspondingly')
             return False
-    else:
-        return True
+    return True

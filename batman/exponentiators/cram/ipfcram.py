@@ -26,7 +26,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 """
-from typing import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 import numpy as np
 import scipy.sparse as sp
@@ -42,8 +42,8 @@ def _ipf_cram(m: sp.csr_matrix, v: np.ndarray, *,
               alpha0: float, alpha: Iterable[complex], theta: Iterable[complex],
               solver: Callable, **kwargs):
     ident = sp.eye(m.shape[0], format='csr')
-    for alpha, theta in zip(alpha, theta):
-        v += 2 * np.real(alpha * solver(m - theta * ident, v, **kwargs))
+    for alph, thet in zip(alpha, theta):
+        v += 2 * np.real(alph * solver(m - thet * ident, v, **kwargs))
     return v * alpha0
 
 

@@ -1,7 +1,7 @@
 """Decay matrix data.
 
 """
-from typing import FrozenSet, Sequence
+from collections.abc import Sequence
 
 import networkx as nx
 import numpy as np
@@ -19,7 +19,7 @@ class DecayModel:
 
     def __init__(self, dg: DecayGraph, isos: Sequence[ZAID], *,
                  dtype: str = 'float64',
-                 accumulate: FrozenSet[ZAID] = frozenset()):
+                 accumulate: frozenset[ZAID] = frozenset()):
 
         n = len(isos)
         self.mat = graph_to_sparse_matrix(dg, isos,

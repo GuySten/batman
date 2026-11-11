@@ -8,12 +8,11 @@ import networkx as nx
 import numpy as np
 import pytest
 from ramp_core import RampJSONDecoder, RampJSONEncoder
-from ramp_endf.decay import DecayProcess
-from ramp_endf.modes import ALPHA, BETA_M, SPF
 from reactions import Fission, NGamma, ProtoReaction, Reaction, ReactionRate
 from reactions import jsonable as reac_jsonable
 
 from batman.graphs.decay import DecayGraph
+from batman.graphs.decay_data import ALPHA, BETA_M, SPF, DecayProcess
 from batman.graphs.filters import (
     blacklist_filter,
     descendents_subgraph,
@@ -223,4 +222,4 @@ def test_to_matrix_on_bare_filter_has_correct_values_calculated_by_hand(bare_fil
     assert np.allclose(m[0, :].toarray(), (-7.53, 0, 0)), tuple(bare_filter.edges(keys=True))
     assert isclose(m[1, 0], 2.4)
     assert isclose(m[2, 0], 0.13)
-    assert all([m[i, i] < 0 for i in range(3)])
+    assert all(m[i, i] < 0 for i in range(3))

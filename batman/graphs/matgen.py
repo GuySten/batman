@@ -3,7 +3,7 @@
 Currently solely based on decay and reaction graphs.
 
 """
-from typing import FrozenSet, Hashable, Iterable
+from collections.abc import Hashable, Iterable
 
 import networkx as nx
 from isotopes import ZAID
@@ -11,9 +11,9 @@ from scipy.sparse import csr_matrix, dok_matrix
 
 
 def graph_to_sparse_matrix(g: nx.MultiDiGraph,
-                           order: Iterable[Hashable] = None,
-                           dtype: str = None,
-                           accumulate: FrozenSet[ZAID] = frozenset()) -> \
+                           order: Iterable[Hashable] | None = None,
+                           dtype: str | None = None,
+                           accumulate: frozenset[ZAID] = frozenset()) -> \
         csr_matrix:
     """Generate a sparse matrix from the decay and reaction graph.
     Assumes the graph has all the per-second constants normalized to the

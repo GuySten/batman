@@ -2,7 +2,7 @@
 sense.
 
 """
-from typing import Dict, Hashable, Tuple, Union
+from collections.abc import Hashable
 
 import networkx as nx
 import numpy as np
@@ -127,8 +127,8 @@ def draw_multigraph_edge_labels(g: nx.MultiGraph, pos, edge_labels=None,
         used[(n1, n2)] = cnt + 1
         # use default box of white with white border
         if bbox is None:
-            bbox = dict(boxstyle='round', ec=(1.0, 1.0, 1.0),
-                        fc=(1.0, 1.0, 1.0), )
+            bbox = {'boxstyle': 'round', 'ec': (1.0, 1.0, 1.0),
+                        'fc': (1.0, 1.0, 1.0), }
         label = str(label)  # this makes "1" and 1 labeled the same
 
         # set optional alignment
@@ -145,8 +145,8 @@ def draw_multigraph_edge_labels(g: nx.MultiGraph, pos, edge_labels=None,
     return text_items
 
 
-def draw(g: Union[DecayGraph, ReactionGraph],
-         pos: Dict[Hashable, Tuple[float, float]] = None, ax=None,
+def draw(g: DecayGraph | ReactionGraph,
+         pos: dict[Hashable, tuple[float, float]] | None = None, ax=None,
          delimiter: str = r'$\rightarrow$', with_labels: bool = True, **kwds):
     """A networkx.draw wrapper that gives a physics-like graph structure.
 
@@ -197,4 +197,3 @@ def draw(g: Union[DecayGraph, ReactionGraph],
     draw_multigraph_edge_labels(g, pos=pos, ax=ax, label_pos=0.8,
                                 edge_labels=labels, **kwds)
     nx.draw_networkx(g, pos=pos, with_labels=with_labels, ax=ax, **kwds)
-    return
