@@ -33,7 +33,7 @@ dependencies = [
     "networkx",
     "numpy",
     "ramp-coremaker",
-    "ramp-endf",
+    "endf>=0.1.12",
     "ramp-isotopes",
     "ramp-reactions",
     "scipy",

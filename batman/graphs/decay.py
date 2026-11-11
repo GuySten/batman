@@ -5,20 +5,19 @@ graphs out of them.
 
 from functools import wraps
 from pathlib import Path
-from typing import Any, Hashable, Optional, Type, TypeVar, Union
+from typing import Any, Hashable, Type, TypeVar, Union
 
 try:
     from typing import Self
 except ImportError:
     Self = TypeVar("Self")
 
+import endf
 import networkx as nx
 from isotopes import ZAID, Isotope
 from ramp_core.serializable import Serializable
-from ramp_endf import Evaluation
-from ramp_endf.decay import Decay, DecayProcess, SPFData, parse_decay_processes
-from ramp_endf.util import halflife_to_rate
 
+from batman.graphs.decay_data import DecayProcess, SPFData, halflife_to_rate, parse_decay_processes
 from batman.units import Second
 
 DECAY = "radioactive decay"
@@ -189,9 +188,19 @@ class DecayGraph(nx.MultiDiGraph):
             return super().__eq__(other)
 
 
-def parse_decay_graph(*file_or_ev: Union[Evaluation, Decay, Path, str], spf_db=Optional[SPFData]) -> DecayGraph:
-    """parse Decay Graph from decay files"""
-    processes = parse_decay_processes(*file_or_ev, spf_db=spf_db)
+def parse_decay_graph(*file_or_material: Union[endf.Material, Path, str],
+                      spf_db: SPFData | None = None) -> DecayGraph:
+    """Decay graph of ENDF-6 decay files or materials.
+
+    Parameters
+    ----------
+    file_or_material - ENDF materials, or paths of ENDF-6 decay files (each
+                       may hold many materials).
+    spf_db - Spontaneous fission yields; without them, spontaneous fission
+             removes the parent but produces nothing.
+
+    """
+    processes = parse_decay_processes(*file_or_material, spf_db=spf_db)
     g = DecayGraph()
     for process in processes:
         g.add_edge_from_process(process, ignore_zero=True)

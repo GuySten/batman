@@ -8,12 +8,11 @@ import networkx as nx
 import numpy as np
 import pytest
 from ramp_core import RampJSONDecoder, RampJSONEncoder
-from ramp_endf.decay import DecayProcess
-from ramp_endf.modes import ALPHA, BETA_M, SPF
 from reactions import Fission, NGamma, ProtoReaction, Reaction, ReactionRate
 from reactions import jsonable as reac_jsonable
 
 from batman.graphs.decay import DecayGraph
+from batman.graphs.decay_data import ALPHA, BETA_M, SPF, DecayProcess
 from batman.graphs.filters import (
     blacklist_filter,
     descendents_subgraph,

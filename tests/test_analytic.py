@@ -13,13 +13,13 @@ import pytest
 from coremaker.materials.mixture import Mixture
 from hypothesis import given, seed, settings
 from isotopes import I135, U235, Xe135
-from ramp_endf.decay import DecayProcess, parse_decay_processes
 from reactions import Fission, NGamma, ProtoReaction, Reaction, ReactionRate
 from scipy.constants import eV
 from scipy.integrate import solve_ivp
 
 from batman.graphs import DecayGraph, GraphFilter
 from batman.graphs.decay import DECAY
+from batman.graphs.decay_data import DecayProcess, parse_decay_processes
 from batman.graphs.filters import whitelist_filter
 from batman.integrator import predictor
 from batman.solver import Configuration, InputData, timestep_constant_power

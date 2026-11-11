@@ -4,9 +4,9 @@ import logging
 from typing import Any, Callable, Hashable, Set
 
 import networkx as nx
-from ramp_endf.modes import SPF
 from toolz import identity
 
+from batman.graphs.decay_data import SPF
 from batman.graphs.types import BatmanGraph
 
 __all__ = [
