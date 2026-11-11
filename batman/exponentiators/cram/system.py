@@ -322,16 +322,17 @@ def _factor_poles(block: sp.csr_matrix, theta: np.ndarray) -> list:
 
 def _cram_substeps(f: _Factors, y: np.ndarray, alpha: np.ndarray,
                    alpha0: float, substeps: int,
-                   scale: float = 1.0) -> np.ndarray:
+                   half: float | np.ndarray = 1.0) -> np.ndarray:
     """``substeps`` IPF CRAM steps of y with the factors ``f``; after every
-    substep the result is multiplied by ``scale`` (in two halves, so that
-    every factor stays a normal number)."""
+    substep the result is multiplied twice by ``half`` (a number or one per
+    entry: the square root of the scale of a substep, so that every factor
+    stays a normal number)."""
     levels = f.levels
     n_poles = f.n_poles
     x = np.zeros((len(y), n_poles), dtype=np.complex128)
     xr = x.view(np.float64)  # (n, 2 poles), for real sparse products
     two_alpha = 2.0 * alpha
-    half = math.sqrt(scale) if scale != 1.0 else 1.0
+    scaled = not (np.isscalar(half) and half == 1.0)
     y = np.array(y, dtype=np.float64)
     for _ in range(substeps):
         for k in range(len(levels.cyclic)):
@@ -348,7 +349,7 @@ def _cram_substeps(f: _Factors, y: np.ndarray, alpha: np.ndarray,
                 x[lo:hi, j] = xj
                 yl = yl + (two_alpha[j] * xj).real
             y[lo:hi] = yl * alpha0
-        if half != 1.0:
+        if scaled:
             y *= half
             y *= half
     return y
@@ -370,6 +371,14 @@ def _shift_levels(st: BurnupStructure, p: sp.csr_matrix, h: float,
     removal rate of the subset), so that CRAM's error is relative to the
     level's own scale. Its values replace those of ``y``. Blocks whose ``mu h``
     exceeds the range of doubles are set to exactly 0.
+
+    All levels are solved at once: each level's subsystem (its members and
+    their active ancestors) gets its own copy of the nuclides it needs, and
+    all the copies are stacked into one block diagonal system, ordered by
+    depth. The copies do not couple, so it is solved like any other matrix:
+    one factorization per pole for all levels (decay: one triangular group),
+    with each copy scaled by its own shift after every substep. The stacked
+    matrix is built with array operations, without a sparse slice per level.
 
     """
     top = float(np.max(np.abs(y0))) if len(y0) else 0.0
@@ -401,25 +410,46 @@ def _shift_levels(st: BurnupStructure, p: sp.csr_matrix, h: float,
     if level.max(initial=0) <= 0:
         return
 
+    # mark[b, k]: block b is in the subsystem of level lvls[k] (a member, or
+    # an active ancestor of one), marked children first
+    lvls = np.unique(level[level > 0])
+    mark = level[:, None] == lvls[None, :]
+    for d in range(int(st.block_depth[level > 0].max()), 0, -1):
+        par, ch = st.edges_at_depth(d)
+        if not len(par):
+            continue
+        up = mark[ch] & active[par, None]
+        np.logical_or.at(mark, par, up)
+
+    # stacked nuclides: (copy k, nuclide i), ordered by depth, then copy
+    copy, nuc = np.nonzero(mark[st.nuc_block].T)
+    order = np.lexsort((nuc, copy, st.nuc_depth[nuc]))
+    copy, nuc = copy[order], nuc[order]
+    m_size = len(nuc)
+    pos = np.full((len(lvls), st.n), -1, dtype=np.int64)
+    pos[copy, nuc] = np.arange(m_size)
+
     diag = p.diagonal()
-    for lv in np.unique(level[level > 0])[::-1]:
-        members = level == lv
-        subset = members.copy()
-        for d in range(int(st.block_depth[members].max()), 0, -1):
-            par, ch = st.edges_at_depth(d)
-            if not len(par):
-                continue
-            up = subset[ch] & active[par]
-            subset[par[up]] = True
-        sub = np.flatnonzero(subset[st.nuc_block])
-        shift = min(lv * width / h, float(np.min(-diag[sub])))
-        m = h * p[sub][:, sub] + sp.eye(len(sub), format="csr") * (h * shift)
-        levels = _levels_of(st.nuc_depth[sub], st.nuc_cyclic[sub])
-        f = _Factors(sp.csr_matrix(m), levels, theta)
-        u = _cram_substeps(f, y0[sub], alpha, alpha0, substeps,
-                           scale=math.exp(-shift * h))
-        keep = members[st.nuc_block[sub]]
-        y[sub[keep]] = u[keep]
+    lam = np.full(len(lvls), np.inf)
+    np.minimum.at(lam, copy, -diag[nuc])
+    shift = np.minimum(lvls * width / h, lam)
+
+    # entries of A inside every copy, then the shifts on the diagonal
+    pc = p.tocoo()
+    both = mark[st.nuc_block[pc.row]] & mark[st.nuc_block[pc.col]]
+    e, k = np.nonzero(both)
+    rows = np.r_[pos[k, pc.row[e]], np.arange(m_size)]
+    cols = np.r_[pos[k, pc.col[e]], np.arange(m_size)]
+    vals = np.r_[h * pc.data[e], h * shift[copy]]
+    m = sp.csr_matrix((vals, (rows, cols)), shape=(m_size, m_size))
+    m.sort_indices()
+
+    levels = _levels_of(st.nuc_depth[nuc], st.nuc_cyclic[nuc])
+    f = _Factors(m, levels, theta)
+    u = _cram_substeps(f, y0[nuc], alpha, alpha0, substeps,
+                       half=np.exp(-0.5 * shift * h)[copy])
+    keep = level[st.nuc_block[nuc]] == lvls[copy]
+    y[nuc[keep]] = u[keep]
 
 
 def cram_apply(a, n0: np.ndarray, t: float, *, order: int = 48,

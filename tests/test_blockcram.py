@@ -1,6 +1,7 @@
 """Tests of the block-structured, shifted CRAM exponentiator.
 
 """
+import math
 import pickle
 from decimal import Decimal, localcontext
 
@@ -91,6 +92,18 @@ def test_short_lived_daughter_is_accurate_relative_to_itself():
     assert new[1] == pytest.approx(exact[1], rel=1e-12)
     assert new[2] == pytest.approx(1.0, rel=1e-14)
     assert abs(old[1] - exact[1]) > 1e3 * exact[1]  # plain CRAM: bulk-relative
+
+
+def test_high_shift_levels_do_not_underflow():
+    """A nuclide that decays by exp(-760) over one substep, from 1e24 atoms,
+    still holds about 1e-306 atoms. Its shift scale exp(-760) underflows as
+    one number, so it is applied in two halves of exp(-380)."""
+    lam = 76.0
+    a = _chain([lam, 0.0])
+    got = CramExponentiator(48, substeps=1).apply(a, np.array([1e24, 0.0]), 10.0)
+    assert math.exp(-760.0) == 0.0  # the scale as one number
+    assert got[0] == pytest.approx(1e24 * float(Decimal(-760).exp()), rel=1e-12)
+    assert got[1] == pytest.approx(1e24, rel=1e-14)
 
 
 @pytest.mark.parametrize("t", [1.0, 3600.0, 86400.0, 3e7, 3e9])
