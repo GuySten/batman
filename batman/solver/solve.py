@@ -15,7 +15,7 @@ from isotopes import ZAID
 from scipy.constants import day
 
 from batman.exponentiators import Exponentiator, FluxFunc
-from batman.exponentiators import IPFCram48 as Cram
+from batman.exponentiators import ShiftedCram48 as Cram
 from batman.units import MW, PCM, PCMPerSecond, PerSecond, Second
 
 from .inputs import EasyData

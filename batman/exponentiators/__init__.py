@@ -1,7 +1,18 @@
 """Tools for matrix exponentiation.
 
-IPFCram16 is less accurate but faster. We don't seem to have a bottleneck in
-the CRAM solver, so currently the solver of choice is IPFCram48.
+The solver of choice is :data:`ShiftedCram48`
+(see :mod:`batman.exponentiators.cram.system`):
+CRAM-48 in 4 substeps that reuse their factorizations, block triangular
+ordering of the nuclides with factorizations only of the strongly connected
+blocks (none at all for decay), no row pivoting, and shift levels that make
+every nuclide accurate relative to its own value (about 1e-13), not only
+relative to the largest populations as plain CRAM is.
+
+:class:`CramExponentiator` gives other settings, e.g.
+``CramExponentiator(24, substeps=1, shifted=False)`` for plain CRAM-24, about
+twice as fast and as accurate for every nuclide that holds more than about
+1e-12 of the atoms. :data:`IPFCram16` and :data:`IPFCram48` are the previous
+solvers (a SciPy ``spsolve`` per pole and step), kept for comparison.
 
 Examples
 --------
@@ -24,4 +35,5 @@ from batman.exponentiators.protocol import Exponentiator as Exponentiator, FluxF
 
 IPFCram16 = IPFCramSolver(*cram16_coefficients())
 IPFCram48 = IPFCramSolver(*cram48_coefficients())
-Magnus = CF3Magnus2IPFCRAM(*cram48_coefficients())
+ShiftedCram48 = CramExponentiator(order=48, substeps=4, shifted=True)
+Magnus = CF3Magnus(ShiftedCram48)
