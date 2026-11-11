@@ -27,7 +27,7 @@ import time
 import numpy as np
 import scipy.sparse as sp
 
-from batman.exponentiators import IPFCram16, IPFCram48, CramExponentiator, ShiftedCram48
+from batman.exponentiators import CramExponentiator, IPFCram16, IPFCram48, ShiftedCram48
 
 DAY = 86400.0
 YEAR = 365.25 * DAY

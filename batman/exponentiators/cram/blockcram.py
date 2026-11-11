@@ -2,7 +2,6 @@
 :mod:`batman.exponentiators.cram.system`.
 
 """
-from typing import Optional
 
 import numpy as np
 import scipy.sparse as sp
@@ -55,7 +54,7 @@ class CramExponentiator:
     """
 
     def __init__(self, order: int = 48, substeps: int = 4, shifted: bool = True,
-                 width: Optional[float] = None, cache_size: int = 8):
+                 width: float | None = None, cache_size: int = 8):
         if order not in CRAM_ORDERS:
             raise ValueError(f"CRAM order must be one of {CRAM_ORDERS}, not {order}")
         if int(substeps) < 1:

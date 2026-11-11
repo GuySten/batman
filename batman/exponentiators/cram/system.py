@@ -35,23 +35,24 @@ from __future__ import annotations
 import math
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 import scipy.sparse as sp
-import scipy.sparse.csgraph as csgraph
 import scipy.sparse.linalg as sla
+from scipy.sparse import csgraph
 
 from .pusa import CRAM_ORDERS, cram_coefficients
 
 __all__ = ["BurnupStructure", "cram_apply", "shift_width"]
 
-# Diagonal pivots: a symmetric ordering and a pivot threshold of 0, so SuperLU
-# never swaps rows.
-_SPLU_KW = dict(permc_spec="MMD_AT_PLUS_A", diag_pivot_thresh=0.0,
-                options=dict(SymmetricMode=True))
-_SPLU_TRIANGULAR_KW = dict(permc_spec="NATURAL", diag_pivot_thresh=0.0,
-                           options=dict(SymmetricMode=True))
+# Diagonal pivots: a pivot threshold of 0 in symmetric mode, so SuperLU never
+# swaps rows. The matrices come in an order that already keeps the fill small
+# (see BurnupStructure), so SuperLU does not order them again.
+_SPLU_KW = {"permc_spec": "NATURAL", "diag_pivot_thresh": 0.0,
+            "options": {"SymmetricMode": True}}
+# Fill-reducing ordering of the cyclic groups, computed once per pattern.
+_ORDERING_KW = {"permc_spec": "MMD_AT_PLUS_A", "diag_pivot_thresh": 0.0,
+                "options": {"SymmetricMode": True}}
 
 # exp(-814) is far below the smallest double (about 4.9e-324 = exp(-744.4)),
 # with room for the number of nuclides.
@@ -106,7 +107,8 @@ class BurnupStructure:
     perm - New (elimination) order to original index: ``perm[k]`` is the
            original index of the k-th nuclide.
     n_blocks - Number of strongly connected components.
-    block_ptr - Boundaries of the blocks in the new order.
+    nuc_block - Block of every nuclide (new order); blocks are numbered so
+                that parents come before their children.
     acyclic - True when every block is a single nuclide (a decay matrix).
 
     """
@@ -136,21 +138,31 @@ class BurnupStructure:
 
         # New order: by depth, then block, then original index.
         perm = np.lexsort((np.arange(n), labels, depth[labels]))
-        self.perm = perm
-        self.iperm = np.empty(n, dtype=np.intp)
-        self.iperm[perm] = np.arange(n)
 
         # Renumber the blocks in the new order (parents get lower numbers).
         old_labels = labels[perm]
         starts = np.flatnonzero(np.r_[True, old_labels[1:] != old_labels[:-1]])
         self.n_blocks = len(starts)
-        self.block_ptr = np.r_[starts, n].astype(np.intp)
         new_of_old = np.empty(n_blocks, dtype=np.intp)
         new_of_old[old_labels[starts]] = np.arange(self.n_blocks)
-        self.nuc_block = new_of_old[old_labels]
+        nuc_block = new_of_old[old_labels]
         self.block_depth = depth[old_labels[starts]]
+        nuc_cyclic = sizes[old_labels] > 1
+        self.levels = _levels_of(self.block_depth[nuc_block], nuc_cyclic)
+
+        # Inside every cyclic group, a fill-reducing order of its blocks (they
+        # do not feed each other, so any order of the group is valid).
+        local = np.arange(n)
+        for k in np.flatnonzero(self.levels.cyclic):
+            lo, hi = self.levels.ptr[k], self.levels.ptr[k + 1]
+            local[lo:hi] = lo + _fill_reducing_order(a[perm[lo:hi]][:, perm[lo:hi]])
+        perm = perm[local]
+        self.perm = perm
+        self.iperm = np.empty(n, dtype=np.intp)
+        self.iperm[perm] = np.arange(n)
+        self.nuc_block = nuc_block[local]
         self.nuc_depth = self.block_depth[self.nuc_block]
-        self.nuc_cyclic = sizes[old_labels] > 1
+        self.nuc_cyclic = nuc_cyclic[local]
         self.acyclic = not self.nuc_cyclic.any()
 
         # Permuted pattern, and where each of its entries comes from in A.
@@ -163,8 +175,6 @@ class BurnupStructure:
         p_rows = np.repeat(np.arange(n), np.diff(p.indptr))
         self._in_block = self.nuc_block[p_rows] == self.nuc_block[p.indices]
         self._in_block_cols = p.indices[self._in_block]
-
-        self.levels = _levels_of(self.nuc_depth, self.nuc_cyclic)
 
         # Block edges in the new numbering, grouped by the depth of the child
         # (parents always lie at a smaller depth).
@@ -187,7 +197,9 @@ class BurnupStructure:
         colsum = np.bincount(self._in_block_cols,
                              weights=p.data[self._in_block],
                              minlength=self.n)
-        return np.minimum.reduceat(-colsum, self.block_ptr[:-1])
+        rate = np.full(self.n_blocks, np.inf)
+        np.minimum.at(rate, self.nuc_block, -colsum)
+        return rate
 
     def edges_at_depth(self, d: int) -> tuple[np.ndarray, np.ndarray]:
         """(parent, child) block pairs whose child is at depth ``d``."""
@@ -197,6 +209,20 @@ class BurnupStructure:
     @property
     def n_depths(self) -> int:
         return len(self._e_ptr) - 1
+
+
+def _fill_reducing_order(block: sp.csr_matrix) -> np.ndarray:
+    """A symmetric fill-reducing order (new to old) of a square pattern,
+    as SuperLU's minimum degree ordering on A + A^T chooses it (with the
+    elimination tree postorder). Depends on the pattern only, so a
+    diagonally dominant matrix with that pattern stands in for the values."""
+    m = block.shape[0]
+    pattern = sp.csr_matrix((np.ones(block.nnz), block.indices, block.indptr),
+                            shape=block.shape)
+    pattern.setdiag(0.0)
+    pattern = pattern - sp.eye(m) * (m + 1.0)
+    lu = sla.splu(pattern.tocsc(), **_ORDERING_KW)
+    return np.argsort(lu.perm_c)
 
 
 def _longest_path_depth(n: int, parent: np.ndarray,
@@ -261,19 +287,37 @@ class _Factors:
             off = rows[:, :lo] if lo else None
             self.off.append(off if off is not None and off.nnz else None)
             block = rows[:, lo:hi]
-            if block.nnz > np.count_nonzero(block.diagonal()) or levels.cyclic[k]:
-                # cyclic: a symmetric fill-reducing order inside the blocks;
-                # triangular: the natural order, which has no fill
-                kw = _SPLU_KW if levels.cyclic[k] else _SPLU_TRIANGULAR_KW
-                block = block.tocsc().astype(np.complex128)
-                eye = sp.eye(hi - lo, format="csc", dtype=np.complex128)
-                self.lu.append([sla.splu(block - t * eye, **kw)
-                                for t in theta])
+            if block.nnz > np.count_nonzero(block.diagonal()):
+                self.lu.append(_factor_poles(block, theta))
                 self.inv_diag.append(None)
             else:
                 self.lu.append(None)
                 self.inv_diag.append(
                     1.0 / (diag[lo:hi, None] - theta[None, :]))
+
+
+def _factor_poles(block: sp.csr_matrix, theta: np.ndarray) -> list:
+    """SuperLU factors of ``block - theta`` for every pole, without pivoting
+    and in the given order (which keeps fill small: lower triangular
+    groups have none, cyclic ones are in their fill-reducing order). The
+    pattern is built once; every pole only changes the diagonal."""
+    m = block.shape[0]
+    coo = block.tocoo()
+    rows = np.r_[coo.row, np.arange(m)]
+    cols = np.r_[coo.col, np.arange(m)]
+    vals = np.r_[coo.data, np.zeros(m)].astype(np.complex128)
+    base = sp.csc_matrix((vals, (rows, cols)), shape=(m, m))  # sums a + 0
+    base.sort_indices()
+    col_of = np.repeat(np.arange(m), np.diff(base.indptr))
+    diag_pos = np.flatnonzero(base.indices == col_of)
+    factors = []
+    for t in theta:
+        data = base.data.copy()
+        data[diag_pos] -= t
+        factors.append(sla.splu(
+            sp.csc_matrix((data, base.indices, base.indptr), shape=(m, m)),
+            **_SPLU_KW))
+    return factors
 
 
 def _cram_substeps(f: _Factors, y: np.ndarray, alpha: np.ndarray,
@@ -379,8 +423,8 @@ def _shift_levels(st: BurnupStructure, p: sp.csr_matrix, h: float,
 
 
 def cram_apply(a, n0: np.ndarray, t: float, *, order: int = 48,
-               substeps: int = 4, width: Optional[float] = None,
-               structure: Optional[BurnupStructure] = None) -> np.ndarray:
+               substeps: int = 4, width: float | None = None,
+               structure: BurnupStructure | None = None) -> np.ndarray:
     """Compute ``exp(A t) n0`` with block-structured CRAM.
 
     Parameters

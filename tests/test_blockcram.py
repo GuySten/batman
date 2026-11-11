@@ -11,8 +11,7 @@ import scipy.linalg as la
 import scipy.sparse as sp
 from hypothesis import given, settings
 
-from batman.exponentiators import (CF3Magnus, CRAM_ORDERS, CramExponentiator,
-                                   IPFCram48, ShiftedCram48, cram_coefficients)
+from batman.exponentiators import CRAM_ORDERS, CF3Magnus, CramExponentiator, IPFCram48, ShiftedCram48, cram_coefficients
 from batman.exponentiators.cram.system import BurnupStructure, cram_apply
 
 

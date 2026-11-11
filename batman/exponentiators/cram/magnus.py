@@ -25,7 +25,7 @@ from batman.units import Second
 from .blockcram import CramExponentiator
 from .ipfcram import IPFCramSolver, _ipf_cram
 
-__all__ = ['CF3Magnus2IPFCRAM', 'CF3Magnus']
+__all__ = ['CF3Magnus', 'CF3Magnus2IPFCRAM']
 
 
 def _weighted_mean(a: Iterable[float], f: Iterable[float]) -> float:
