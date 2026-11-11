@@ -2,11 +2,12 @@
 
 """
 import logging
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import timedelta
 from math import isclose
-from typing import Callable, Dict, Optional, Sequence, Tuple, TypeVar
+from typing import TypeVar
 
 import numpy as np
 from coremaker.materials.mixture import Mixture
@@ -23,11 +24,16 @@ from .time_est import halfstep
 from .utils import RunData, capture_warnings, mixture_to_nd
 
 DenArray = np.ndarray
-IsoData = Dict[ZAID, Tuple[MW, PerSecond]]
+IsoData = dict[ZAID, tuple[MW, PerSecond]]
 PowerGuess = Callable[[Second, MW, MW, MW], Second]
 
-__all__ = ['timestep_constant_power', 'timestep_constant_flux', 'Configuration',
-           'depstep_single', 'BurnResult']
+__all__ = [
+    'BurnResult',
+    'Configuration',
+    'depstep_single',
+    'timestep_constant_flux',
+    'timestep_constant_power',
+]
 
 modlogger = logging.getLogger('batman.solve')
 
@@ -117,7 +123,7 @@ class Configuration:
                     data: EasyData,
                     t: Second,
                     p: MW,
-                    norm: Optional[float] = None) -> Second:
+                    norm: float | None = None) -> Second:
         """Make an initial guess for the timestep to take given the data at
         hand.
 
@@ -167,8 +173,8 @@ class BurnResult:
     steps: int
     time: timedelta
     last_norm: float
-    k: Optional[float] = None
-    dkdt: Optional[float] = None
+    k: float | None = None
+    dkdt: float | None = None
 
     @classmethod
     def empty(cls, **kwargs):
@@ -178,12 +184,12 @@ class BurnResult:
         return cls(0, timedelta(0.), 1., **kwargs)
 
     @property
-    def rho(self) -> Optional[PCM]:
+    def rho(self) -> PCM | None:
         """Reactivity in PCM"""
         return self.k and 1e5*(1. - 1./self.k)
 
     @property
-    def drhodt(self) -> Optional[PCMPerSecond]:
+    def drhodt(self) -> PCMPerSecond | None:
         """Reactivity change rate, in PCM per second.
         Returns None if k or dkdt are unknown.
 
@@ -206,8 +212,8 @@ class BurnResult:
 
 def _step_constant_power(data: EasyData, p: MW, tstep: Second, *,
                          config: Configuration,
-                         loss_fac: Optional[float],
-                         ) -> Tuple[Sequence[Mixture], BurnResult]:
+                         loss_fac: float | None,
+                         ) -> tuple[Sequence[Mixture], BurnResult]:
     """Do one burnup step, such that the total power is constant within the
     timestep.
 
@@ -253,9 +259,9 @@ def _step_constant_power(data: EasyData, p: MW, tstep: Second, *,
 
 def timestep_constant_power(data: EasyData, p: MW, t: Second, *,
                             config: Configuration,
-                            loss_fac: Optional[float] = None,
-                            k0: Optional[float] = None,
-                            ) -> Tuple[Sequence[Mixture], BurnResult]:
+                            loss_fac: float | None = None,
+                            k0: float | None = None,
+                            ) -> tuple[Sequence[Mixture], BurnResult]:
     """Perform burnup steps until you get to the desired burnup (power*time)
     while maintaining constant power within each step.
 

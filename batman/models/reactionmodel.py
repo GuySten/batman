@@ -1,8 +1,8 @@
 """Reaction matrix tools"""
 
 import operator
+from collections.abc import Callable, Iterable, Sequence
 from functools import lru_cache, reduce
-from typing import Callable, Dict, FrozenSet, Iterable, Sequence
 
 import numpy as np
 import scipy.sparse as spr
@@ -93,7 +93,7 @@ def _arrgen(reaction: ReactionType, isos: Sequence[ZAID]) -> np.ndarray:
     return arr
 
 
-def fiss_arr_gen(isos: Sequence[ZAID], reactions: Sequence[ReactionType]) -> Dict[ReactionType, np.ndarray]:
+def fiss_arr_gen(isos: Sequence[ZAID], reactions: Sequence[ReactionType]) -> dict[ReactionType, np.ndarray]:
     """Generate a branch vector for each branching reaction.
 
     Parameters
@@ -121,7 +121,7 @@ class ReactionModel:
         isos: Sequence[ZAID],
         reactions: Iterable[ReactionRate],
         dtype="float64",
-        accumulate: FrozenSet[ZAID],
+        accumulate: frozenset[ZAID],
         branch_factory: Callable[..., np.ndarray] = _arrgen,
     ):
         """

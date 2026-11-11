@@ -222,4 +222,4 @@ def test_to_matrix_on_bare_filter_has_correct_values_calculated_by_hand(bare_fil
     assert np.allclose(m[0, :].toarray(), (-7.53, 0, 0)), tuple(bare_filter.edges(keys=True))
     assert isclose(m[1, 0], 2.4)
     assert isclose(m[2, 0], 0.13)
-    assert all([m[i, i] < 0 for i in range(3)])
+    assert all(m[i, i] < 0 for i in range(3))

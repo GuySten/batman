@@ -1,7 +1,8 @@
 """Graph filters that are used to generate leaner, meaner graphs."""
 
 import logging
-from typing import Any, Callable, Hashable, Set
+from collections.abc import Callable, Hashable
+from typing import Any
 
 import networkx as nx
 from toolz import identity
@@ -11,12 +12,12 @@ from batman.graphs.types import BatmanGraph
 
 __all__ = [
     "GraphFilter",
-    "whitelist_filter",
-    "subsets_connection_subgraph",
     "blacklist_filter",
-    "exclude_spf_filter",
     "descendents_subgraph",
+    "exclude_spf_filter",
     "predecessors_subgraph",
+    "subsets_connection_subgraph",
+    "whitelist_filter",
 ]
 
 modlogger = logging.getLogger("batman.filter")
@@ -53,7 +54,7 @@ class GraphFilter:
             return super().__eq__(other)
 
 
-def descendents_subgraph(g: BatmanGraph, s: Set[Hashable]) -> BatmanGraph:
+def descendents_subgraph(g: BatmanGraph, s: set[Hashable]) -> BatmanGraph:
     """Returns the subgraph of nodes that are reachable from s, including s.
 
     Somehow, this is not an algorithm in networkx. They do have the descendents
@@ -83,7 +84,7 @@ def descendents_subgraph(g: BatmanGraph, s: Set[Hashable]) -> BatmanGraph:
     return nx.compose_all(g.subgraph(_descendents(source)) for source in s)
 
 
-def predecessors_subgraph(g: BatmanGraph, s: Set[Hashable]) -> BatmanGraph:
+def predecessors_subgraph(g: BatmanGraph, s: set[Hashable]) -> BatmanGraph:
     """Returns the subgraph of nodes that can reach s, including s.
 
     Uses graph reversal and descendents_subgraph.
@@ -102,7 +103,7 @@ def predecessors_subgraph(g: BatmanGraph, s: Set[Hashable]) -> BatmanGraph:
     return descendents_subgraph(g.reverse(False), s).reverse(False)
 
 
-def subsets_connection_subgraph(g: BatmanGraph, src: Set[Hashable], dest: Set[Hashable]) -> BatmanGraph:
+def subsets_connection_subgraph(g: BatmanGraph, src: set[Hashable], dest: set[Hashable]) -> BatmanGraph:
     """Returns the subgraph of nodes that can be reached from src and can reach
     dest.
 
@@ -122,7 +123,7 @@ def subsets_connection_subgraph(g: BatmanGraph, src: Set[Hashable], dest: Set[Ha
     return predecessors_subgraph(descendents_subgraph(g, src), dest)
 
 
-def blacklist_filter(g: BatmanGraph, s: Set[Hashable]) -> BatmanGraph:
+def blacklist_filter(g: BatmanGraph, s: set[Hashable]) -> BatmanGraph:
     """Return the subgraph that is the same but excludes the nodes in s
 
     Parameters
@@ -138,7 +139,7 @@ def blacklist_filter(g: BatmanGraph, s: Set[Hashable]) -> BatmanGraph:
     return g.subgraph(set(g.nodes) - s)
 
 
-def whitelist_filter(g: BatmanGraph, s: Set[Hashable]) -> BatmanGraph:
+def whitelist_filter(g: BatmanGraph, s: set[Hashable]) -> BatmanGraph:
     """Return the subgraph that only has isotopes in the specific set.
 
     Parameters

@@ -4,7 +4,6 @@
 from functools import partial
 from logging import getLogger
 from math import inf, isclose, log
-from typing import Optional, Tuple
 from warnings import warn
 
 import numpy as np
@@ -15,13 +14,13 @@ from .inputs import EasyData
 from .power_normalization import add_two
 from .utils import RunData, mixture_to_nd
 
-__all__ = ['deriv_p', 'max_step_initial_correct_predictor', 'halfstep']
+__all__ = ['deriv_p', 'halfstep', 'max_step_initial_correct_predictor']
 
 
 logger = getLogger('batman.time_est')
 
 
-def _deriv_p_single(data: RunData, *, norm: float) -> Tuple[float, float]:
+def _deriv_p_single(data: RunData, *, norm: float) -> tuple[float, float]:
     """Calculate the derivative in power generation for a single RunData.
 
     Parameters
@@ -85,7 +84,7 @@ def max_step_initial_correct_predictor(
         rtol: float,
         too_small: Second = 0.,
         nudge: float = 1.-1e-2,
-        norm: Optional[float] = None) -> Second:
+        norm: float | None = None) -> Second:
     """Yields an initial guess using the power derivative.
     This method assumes that the power starts at the correct power level that
     the user desires, and then the flux remains constant. For a non-breeding

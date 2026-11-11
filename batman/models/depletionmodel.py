@@ -1,8 +1,8 @@
 """Model creation tools
 
 """
+from collections.abc import Callable, Sequence
 from functools import lru_cache
-from typing import Callable, FrozenSet, Sequence, Tuple
 
 import networkx as nx
 from isotopes import ZAID
@@ -14,17 +14,17 @@ from batman.graphs.reaction import ReactionGraph
 
 from .decaymodel import DecayModel
 
-DepletionModel = Tuple[Sequence[ZAID],
+DepletionModel = tuple[Sequence[ZAID],
                        DecayModel,
                        Callable[[ReactionRate], bool]]
 
 
 @lru_cache(maxsize=5)
 def depletion_model(dg: DecayGraph,
-                    reacts: FrozenSet[ReactionType],
+                    reacts: frozenset[ReactionType],
                     _filter: GraphFilter, *,
                     dtype: str = 'float64',
-                    accumulate: FrozenSet[ZAID] = frozenset()
+                    accumulate: frozenset[ZAID] = frozenset()
                     ) -> DepletionModel:
     """Generate the depletion model for some composition's data. This model
     includes which isotopes are to burn (and at what order), their decay
@@ -53,7 +53,7 @@ def depletion_model(dg: DecayGraph,
     rg.add_edges_from_results(fake_rates)
     g = _filter(nx.compose(dg, rg))
 
-    isos = tuple(sorted(tuple(g.nodes)))
+    isos = tuple(sorted(g.nodes))
 
     dg: DecayGraph = dg.subgraph(isos)
     decmat = DecayModel(dg, isos, dtype=dtype, accumulate=accumulate)

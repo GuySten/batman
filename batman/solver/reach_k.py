@@ -2,9 +2,9 @@
 
 """
 import logging
+from collections.abc import Callable, Container, Sequence
 from copy import deepcopy
 from math import inf
-from typing import Callable, Container, Optional, Sequence, Tuple
 
 import numpy as np
 from coremaker.protocols.mixture import Mixture
@@ -62,9 +62,9 @@ def step_desired_k_at_power(data: EasyData, *,
                             k0: float, k: float, k_tolerance: float,
                             config: Configuration,
                             maxt: Second = inf,
-                            loss_fac: Optional[float] = None,
-                            guess: Optional[Second] = None,
-                            ) -> Tuple[Sequence[Mixture], BurnResult]:
+                            loss_fac: float | None = None,
+                            guess: Second | None = None,
+                            ) -> tuple[Sequence[Mixture], BurnResult]:
     """Timestep a system at constant power until its k-eigenvalue reaches a
     desired value.
     Assumes k is monotonically decreasing, which may not be your case if you have
@@ -132,7 +132,7 @@ def _try_to_converge(data: EasyData, t: Second, tguess: Second, *,
                      maxt: Second,
                      ktarget: float,
                      too_low: Callable[[float], bool]) -> \
-        Tuple[EasyData, BurnResult, Second, Second]:
+        tuple[EasyData, BurnResult, Second, Second]:
     newdata = deepcopy(data)
     newdata.mixtures, info = timestep_constant_power(data, p, tguess,
                                                      loss_fac=loss_fac,

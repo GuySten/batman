@@ -1,11 +1,10 @@
 """These are simple, analytic cases that should give us the required data."""
 
-import logging
+from collections.abc import Iterable
 from functools import partial
 from math import exp, inf, isclose
 from os.path import dirname
 from pathlib import Path
-from typing import Iterable
 
 import hypothesis.strategies as st
 import numpy as np
@@ -77,7 +76,7 @@ def test_analytic_decay_is_exponential_down(iodine_decay: DecayGraph, t: Second)
     data = InputData([iodine_decay], [[]], [_filter], [mixture], [1.0])
     easy = EasyData.from_input(data)
     config = Configuration(p_rtol=1.0, p_atol=0, integrator=predictor, time_guesser=tguess, threshold=1e-18)
-    newden, result = timestep_constant_power(easy, 0.0, t, config=config)
+    newden, _result = timestep_constant_power(easy, 0.0, t, config=config)
     assert allclose(newden[0], expected_res)
 
 
@@ -105,8 +104,6 @@ def test_analytic_power_constant_burn_causes_linear_drop_in_fuel(
         assert config.first_guess(easy, t=t, p=P) == t
     (newden,), result = timestep_constant_power(easy, P, t, config=config)
     assert result.time.total_seconds() == pytest.approx(t, rel=1e-4)
-    logging.debug(f"Depletion was: {1.0 - expected_res[U235] / u0:%}")
-    logging.debug(f"It took {result.steps} steps")
     assert allclose(newden, expected_res, comparator=isclose, rel_tol=1e-6, abs_tol=1e-5)
     assert result.steps <= max_step
 
@@ -332,7 +329,7 @@ def test_follows_analytic_solution_for_U235_iodine_xenon_system(
     data = InputData([iodine_decay], [reactions], [_filter], [mixture], [vol])
     easy = EasyData.from_input(data)
     config = Configuration(p_rtol=1e-2, p_atol=1e-10, integrator=predictor, time_guesser=tguess, threshold=1e-18)
-    newden, result = timestep_constant_power(
+    newden, _result = timestep_constant_power(
         easy,
         p,
         t,

@@ -1,14 +1,13 @@
 """Tools for the calculation of power and renormalization
 
 """
-from typing import Tuple
 
 from batman.units import MW
 
 from .utils import RunData, mixture_to_nd
 
 
-def add_two(x: Tuple[MW, MW], y: Tuple[MW, MW]) -> Tuple[MW, MW]:
+def add_two(x: tuple[MW, MW], y: tuple[MW, MW]) -> tuple[MW, MW]:
     """Element-wise add tuples of decay-energy/reaction-energy.
 
     Parameters
@@ -20,7 +19,7 @@ def add_two(x: Tuple[MW, MW], y: Tuple[MW, MW]) -> Tuple[MW, MW]:
     return x[0] + y[0], x[1] + y[1]
 
 
-def single_power_produced(compdata: RunData, norm: float) -> Tuple[MW, MW]:
+def single_power_produced(compdata: RunData, norm: float) -> tuple[MW, MW]:
     """Calculate the power produced in a single component
 
     Parameters

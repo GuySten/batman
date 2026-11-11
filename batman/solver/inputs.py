@@ -4,10 +4,11 @@
 
 import logging
 from abc import abstractmethod
+from collections.abc import Callable, Generator, Iterable, Iterator, Sequence, Sized
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial, reduce
-from typing import Callable, FrozenSet, Generator, Iterable, Protocol, Sequence, Sized, Tuple, Type, TypeVar
+from typing import Protocol, Self, TypeVar
 
 from coremaker.protocols.mixture import Mixture
 from isotopes import ZAID
@@ -20,10 +21,10 @@ from batman.units import EV, EV_TO_MJ, MJ, MW, Volume
 from .power_normalization import add_two, calc_norm, single_power_produced
 from .utils import DepletionData, RunData, append_doc_of
 
-ModelData = Tuple[DecayGraph, Iterable[ReactionRate], GraphFilter,
-                  FrozenSet[ZAID]]
-ComponentData = Tuple[DecayGraph, Iterable[ReactionRate], GraphFilter,
-                      Mixture, Volume, FrozenSet[ZAID]]
+ModelData = tuple[DecayGraph, Iterable[ReactionRate], GraphFilter,
+                  frozenset[ZAID]]
+ComponentData = tuple[DecayGraph, Iterable[ReactionRate], GraphFilter,
+                      Mixture, Volume, frozenset[ZAID]]
 BurnData = Iterable[ModelData]
 
 modlogger = logging.getLogger('batman.expo.input')
@@ -34,7 +35,6 @@ class FiniteIterable(Iterable[T], Sized, Protocol):
     """An iterable that is guaranteed to end at some point
 
     """
-    pass
 
 
 @dataclass(init=True, frozen=False)
@@ -75,7 +75,7 @@ class InputData:
     filters: Sequence[GraphFilter]
     mixtures: Sequence[Mixture]
     volumes: Sequence[Volume]
-    accumulates: Sequence[FrozenSet[ZAID]] = None
+    accumulates: Sequence[frozenset[ZAID]] = None
 
     def __post_init__(self):
         self.accumulates = (self.accumulates
@@ -99,7 +99,7 @@ class InputData:
                     )
                 ) from e
 
-    def __iter__(self) -> Generator[ComponentData, None, None]:
+    def __iter__(self) -> Iterator[ComponentData]:
         yield from zip(self.decay_models,
                        self.reaction_models,
                        self.filters,
@@ -130,7 +130,7 @@ class EasyData(Protocol):
 
     @classmethod
     @abstractmethod
-    def from_input(cls: Type[Td], data: InputData, *, dtype: str = 'float64') \
+    def from_input(cls: type[Td], data: InputData, *, dtype: str = 'float64') \
             -> Td:
         """Make EasyData from InputData
 
@@ -189,7 +189,7 @@ class EasyData(Protocol):
         """
         return sum(self.powers(norm=norm))
 
-    def powers(self, norm: float) -> Tuple[MW, MW]:
+    def powers(self, norm: float) -> tuple[MW, MW]:
         """Calculate the decay and reaction powers at the current state and
         normalization.
 
@@ -264,8 +264,8 @@ class SerialEasyData:
                           _volumes=self.volumes)
 
     @classmethod
-    def from_input(cls: Type[Td], data: InputData, *, dtype: str = 'float64') \
-            -> Td:
+    def from_input(cls, data: InputData, *, dtype: str = 'float64') \
+            -> Self:
         """Make SerialEasyData from InputData
 
         Parameters
@@ -281,7 +281,7 @@ class SerialEasyData:
     calc_norm = EasyData.calc_norm
     powers = EasyData.powers
 
-    def __iter__(self) -> Generator[RunData, None, None]:
+    def __iter__(self) -> Iterator[RunData]:
         yield from zip(self.models, self.mixtures, self.volumes)
 
     def __len__(self) -> int:

@@ -1,11 +1,10 @@
 """CRAM coefficients for each rational polynomial degree.
 
 """
-from typing import Tuple
 
 import numpy as np
 
-CRAMCoeffs = Tuple[np.ndarray, np.ndarray, float]
+CRAMCoeffs = tuple[np.ndarray, np.ndarray, float]
 
 
 def cram16_coefficients() -> CRAMCoeffs:

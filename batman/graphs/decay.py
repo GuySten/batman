@@ -3,9 +3,10 @@ graphs out of them.
 
 """
 
+from collections.abc import Hashable
 from functools import wraps
 from pathlib import Path
-from typing import Any, Hashable, Type, TypeVar, Union
+from typing import Any, TypeVar
 
 try:
     from typing import Self
@@ -48,7 +49,7 @@ class DecayGraph(nx.MultiDiGraph):
     def __init__(self, incoming_graph_data=None, **attr):
         super().__init__(incoming_graph_data=incoming_graph_data, **attr)
         self._rep_cache = None
-        self._hash: Union[int, None] = None
+        self._hash: int | None = None
 
     def invalidate_cache(self) -> None:
         """Invalidate cached quantities. Do this whenever you modify the graph"""
@@ -160,7 +161,7 @@ class DecayGraph(nx.MultiDiGraph):
         return self.ser_identifier, {"nodes": nodes, "edges": edges}
 
     @classmethod
-    def deserialize(cls: Self, d, *, supported: dict[str, Type[Serializable]]) -> Self:
+    def deserialize(cls: Self, d, *, supported: dict[str, type[Serializable]]) -> Self:
         g = cls()
         for zaid in d["nodes"]:
             iso = Isotope.from_int_with_fallback(zaid)
@@ -188,7 +189,7 @@ class DecayGraph(nx.MultiDiGraph):
             return super().__eq__(other)
 
 
-def parse_decay_graph(*file_or_material: Union[endf.Material, Path, str],
+def parse_decay_graph(*file_or_material: endf.Material | Path | str,
                       spf_db: SPFData | None = None) -> DecayGraph:
     """Decay graph of ENDF-6 decay files or materials.
 
