@@ -66,7 +66,20 @@ The strategy
    that nothing feeds stays exactly 0 (:func:`_factor_poles`).
 4. **Substeps** (A. Isotalo and M. Pusa, Nucl. Sci. Eng. 183 (2016) 65):
    ``exp(A t) = exp(A h)^s`` with ``h = t / s``, reusing the factorizations of
-   step 1 for all ``s`` substeps.
+   step 1 for all ``s`` substeps. CRAM is accurate when no entry changes too
+   much within one step, and substeps limit the change per (sub)step. That
+   helps in two cases. First, entries near 0: compartments that start empty
+   and are fed by fast transitions, as in fresh fuel and in decay (the cases
+   Isotalo and Pusa studied), where plain CRAM's absolute error is far above
+   their value. On the yield-2 daughter of
+   ``test_yield_two_daughter_accurate_relative_to_itself``, one plain CRAM step
+   is off by many orders of magnitude and four are within about 1e-13. Second,
+   blocks whose eigenvalues lie far from the real axis, such as long cycles
+   of transmutations: CRAM is optimal only on the negative real axis, and its
+   error there grows with ``|h lambda|``. On a 40-compartment cycle, one step of
+   100 lifetimes is off by 2e-5 and four substeps are within about 1e-14
+   (``test_substeps_help_far_from_the_real_axis``). Since the
+   factorizations are reused, each extra substep costs only its solves.
 5. **Shift levels**, which solve the problem above. For any number ``s``,
    ``exp(A t) = exp(-s t) exp((A + s I) t)``. For a compartment whose
    ancestors (the compartments that feed it, directly or not) all empty faster
@@ -513,21 +526,18 @@ def _cram_substeps(f: _Factors, y: np.ndarray, alpha: np.ndarray,
     return y
 
 
-# --- Shift levels --------------------------------------------------------
-#
-# After a plain CRAM step, the compartments whose ancestors all empty fast
-# carry an error of about alpha0 times the largest entry, far above their own
-# value. They are solved again with a shift. For a block, mu is the slowest
-# decay rate of it and its active ancestors (MatrixStructure.block_decay_bounds);
-# a block with mu h in [k width, (k + 1) width), k >= 1, belongs to shift
-# level k. Each level is solved again, together with its active ancestors, as
-# exp(-s t) exp((A + s I) t) with s = k width / h, at most the smallest
-# removal rate in the subsystem, so no diagonal entry of A + s I is positive.
-
-
 @dataclass(frozen=True)
 class _ShiftLevels:
     """The shift level of every block of a step, from :func:`_assign_shift_levels`.
+
+    Why shift levels exist is in the module notes (strategy, item 5). How a
+    block gets its level: ``mu`` of a block is the slowest decay rate of it
+    and its active ancestors (:meth:`MatrixStructure.block_decay_bounds`,
+    clipped at 0). A block with ``k width <= mu h < (k + 1) width``, ``k >= 1``,
+    is in level ``k``. Level ``k`` is solved again, with its active
+    ancestors, using the shift ``s = k width / h``, capped at the smallest
+    removal rate in that subsystem so that no diagonal entry of ``A + s I``
+    is positive.
 
     level - Shift level of every block: 0 for blocks that need no shift (and
             for inactive ones), k >= 1 otherwise.
@@ -651,7 +661,7 @@ def _shift_levels(st: MatrixStructure, p: sp.csr_matrix, h: float,
                   width: float) -> None:
     """Shifted CRAM: solve again, in place in ``y`` (structure order), the
     compartments whose ancestors all empty fast over a substep of length
-    ``h`` (see the notes above :class:`_ShiftLevels`), and set to exactly 0
+    ``h`` (see :class:`_ShiftLevels`), and set to exactly 0
     those whose value is below the range of doubles.
 
     ``test_short_lived_daughter_is_accurate_relative_to_itself`` shows a case

@@ -214,6 +214,22 @@ def test_fission_like_columns_against_dense_expm(seed):
         assert np.all(got >= 0)
 
 
+def test_substeps_help_far_from_the_real_axis():
+    """A long cycle of transfers has eigenvalues far from the real axis,
+    where CRAM is less accurate: one step loses digits, four substeps (each
+    with a smaller h lambda) do not."""
+    n = 40
+    a = -np.eye(n) * (1.0 + 1e-3) + np.roll(np.eye(n), 1, axis=0)  # i -> i + 1
+    v = np.zeros(n)
+    v[0] = 1.0
+    ref = la.expm(100.0 * a) @ v
+    def error(substeps):
+        got = StructuralCram(substeps=substeps, shifted=False)(sp.csr_matrix(a), v, 100.0)
+        return np.max(np.abs(got - ref)) / np.max(np.abs(ref))
+    assert error(1) > 1e-7
+    assert error(4) < 1e-12
+
+
 def test_growing_block_is_solved_without_a_shift():
     """A cyclic block that grows (one of its columns hands back more than it
     loses) has an eigenvalue above 0: the shift bound is clipped at 0, so the
@@ -268,30 +284,22 @@ def test_flux_and_protocol():
     assert np.array_equal(ShiftedCram48(d, r, lambda _t: 1., n0, 0.0), n0)
 
 
-def test_constant_flux_forms_the_step_matrix():
-    """ConstantFlux hands its matrix exponential d + flux(0) r, samples the
-    flux only at the start of the step, and leaves r out at zero flux."""
-    calls, sampled = [], []
-
-    def expm(a, v, t):
-        calls.append((sp.csr_matrix(a), v, t))
-        return v
-
-    def flux(t):
-        sampled.append(t)
-        return 0.5
-
-    d = _chain([1e-3, 0.0])
-    r = sp.csr_matrix(np.array([[-2e-3, 0.0], [2e-3, 0.0]]))
-    n0 = np.array([1.0, 0.0])
-    step = ConstantFlux(expm)
-    step(d, r, flux, n0, 100.0)
-    a, v, t = calls[-1]
-    assert sampled == [0.0]
-    assert np.array_equal(a.toarray(), (d + 0.5 * r).toarray())
-    assert v is n0 and t == 100.0
-    step(d, r, lambda _t: 0.0, n0, 100.0)
-    assert calls[-1][0].nnz == d.nnz  # the pattern of d alone
+@pytest.mark.parametrize("seed", range(3))
+def test_constant_flux_is_the_exponential_of_the_step_matrix(seed):
+    """ConstantFlux(expm) gives exp((d + flux(0) r) dt) n0: the step's matrix
+    at the flux of its start, which a flux that varies within the step does
+    not change."""
+    a = _random_burnup(30, seed)
+    d = sp.csr_matrix(sp.tril(a, -1) + sp.diags(a.diagonal()))  # decay-like
+    r = sp.csr_matrix(sp.triu(a, 1)) - sp.diags(np.asarray(sp.triu(a, 1).sum(axis=0)).ravel())
+    n0 = np.random.default_rng(seed).random(30)
+    step = ConstantFlux(StructuralCram())
+    for phi, dt in ((0.0, 10.0), (1e-2, 10.0), (1.0, 0.1)):
+        ref = la.expm(dt * (d + phi * r).toarray()) @ n0
+        for flux in (lambda _t, phi=phi: phi, lambda t, phi=phi: phi + 5.0 * t):
+            got = step(d, r, flux, n0, dt)
+            big = np.abs(ref) > 1e-9 * np.abs(ref).sum()
+            assert np.allclose(got[big], ref[big], rtol=1e-9, atol=0)
 
 
 def test_wrong_vector_shape_says_what_fits():
