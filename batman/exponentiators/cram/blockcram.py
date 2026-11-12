@@ -1,5 +1,5 @@
 """Batman exponentiator for the block-structured, shifted CRAM of
-:mod:`batman.exponentiators.cram.system`.
+:mod:`batman.exponentiators.cram.structural`.
 
 """
 
@@ -9,8 +9,8 @@ import scipy.sparse as sp
 from batman.exponentiators.protocol import FluxFunc
 from batman.units import Second
 
-from .pusa import CRAM_ORDERS
-from .system import StructureCache, _canonical, cram_apply, shift_width
+from .pusa import CRAM_ORDERS, CramOrder
+from .structural import _canonical, cram_apply, shift_width, structure_of
 
 __all__ = ["CramExponentiator"]
 
@@ -26,13 +26,15 @@ class CramExponentiator:
     :class:`IPFCramSolver`, is only accurate relative to the bulk: its error is
     about ``alpha0`` times the largest population, in every nuclide.
 
-    The pattern of every matrix is analyzed once (block ordering, levels) and
-    kept in a small cache, so steps of one component reuse it. Decay steps
+    The pattern of every matrix is analyzed once (block ordering, solve
+    groups) and cached by :func:`structure_of`, so steps of one component reuse
+    it. Decay steps
     (``flux(0) == 0``, or ``r`` empty) need no factorization at all.
 
     Parameters
     ----------
-    order - CRAM order, one of 4, 8, ..., 48. From 24 on, plain CRAM is at
+    order - CRAM order (:class:`CramOrder`, or one of the ints 4, 8, ..., 48).
+            From 24 on, plain CRAM is at
             the round-off of double precision for the bulk; 48 is needed
             for the activity of nuclides that decay away within a step.
     substeps - Substeps per call, sharing the factorizations.
@@ -40,7 +42,6 @@ class CramExponentiator:
               ancestors all decay fast (their accuracy relative to their
               own value).
     width - Width of the shift levels; None picks 20 for CRAM-48 and 10 below.
-    cache_size - Number of matrix patterns whose analysis is kept.
 
     Examples
     --------
@@ -53,28 +54,28 @@ class CramExponentiator:
 
     """
 
-    def __init__(self, order: int = 48, substeps: int = 4, shifted: bool = True,
-                 width: float | None = None, cache_size: int = 8):
-        if order not in CRAM_ORDERS:
-            raise ValueError(f"CRAM order must be one of {CRAM_ORDERS}, not {order}")
-        if int(substeps) < 1:
+    def __init__(self, order: CramOrder | int = CramOrder.CRAM48, substeps: int = 4,
+                 shifted: bool = True, width: float | None = None):
+        if substeps < 1:
             raise ValueError(f"substeps must be at least 1, not {substeps}")
-        self.order = int(order)
-        self.substeps = int(substeps)
-        self.shifted = bool(shifted)
+        try:
+            self.order = CramOrder(order)
+        except ValueError:
+            raise ValueError(f"CRAM order must be one of {CRAM_ORDERS}, not {order!r}") from None
+        self.substeps = substeps
+        self.shifted = shifted
         self.width = (0.0 if not shifted
                       else shift_width(order) if width is None else float(width))
-        self._structures = StructureCache(cache_size)
 
     def __repr__(self) -> str:
-        return (f"{type(self).__name__}(order={self.order}, substeps={self.substeps}, "
+        return (f"{type(self).__name__}(order={int(self.order)}, substeps={self.substeps}, "
                 f"shifted={self.shifted})")
 
     def apply(self, a, n0: np.ndarray, dt: Second) -> np.ndarray:
         """Return ``exp(a dt) n0`` for a burnup matrix ``a``."""
         a = _canonical(a)
         return cram_apply(a, n0, dt, order=self.order, substeps=self.substeps,
-                          width=self.width, structure=self._structures.get(a))
+                          width=self.width, structure=structure_of(a))
 
     def __call__(self, d: sp.csr_matrix, r: sp.csr_matrix, flux: FluxFunc,
                  n0: np.ndarray, dt: Second) -> np.ndarray:

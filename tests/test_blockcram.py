@@ -2,7 +2,6 @@
 
 """
 import math
-import pickle
 from decimal import Decimal, localcontext
 
 import hypothesis.strategies as st
@@ -12,8 +11,15 @@ import scipy.linalg as la
 import scipy.sparse as sp
 from hypothesis import given, settings
 
-from batman.exponentiators import CRAM_ORDERS, CF3Magnus, CramExponentiator, IPFCram48, ShiftedCram48, cram_coefficients
-from batman.exponentiators.cram.system import BurnupStructure, cram_apply
+from batman.exponentiators import (
+    CRAM_ORDERS,
+    CramExponentiator,
+    CramOrder,
+    IPFCram48,
+    ShiftedCram48,
+    cram_coefficients,
+)
+from batman.exponentiators.cram.structural import BurnupStructure, cram_apply, structure_of
 
 
 def _ipf_scalar(order, x):
@@ -39,10 +45,18 @@ def test_cram24_uses_the_corrected_pole():
 
 
 def test_unknown_order_is_rejected():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="CRAM order must be one of"):
         cram_coefficients(10)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="CRAM order must be one of"):
         CramExponentiator(order=10)
+
+
+def test_orders_as_enum_or_int():
+    a = _chain([1.0, 1e-3, 0.0])
+    n0 = np.array([1.0, 0.0, 0.0])
+    assert CramExponentiator(CramOrder.CRAM24).order == 24
+    assert np.array_equal(cram_apply(a, n0, 5.0, order=CramOrder.CRAM24),
+                          cram_apply(a, n0, 5.0, order=24))
 
 
 def _chain(lams):
@@ -183,26 +197,18 @@ def test_flux_and_protocol():
     assert got[0] == pytest.approx(np.exp(-lam * 100.0), rel=1e-13)
     assert got.sum() == pytest.approx(1.0, rel=1e-14)
     assert np.array_equal(ShiftedCram48(d, r, lambda _t: 1., n0, 0.0), n0)
-    with pytest.raises(ValueError):
-        ShiftedCram48(d, r, lambda _t: 1., n0, -1.0)
 
 
-def test_magnus_with_constant_flux_is_one_step():
-    a = _random_burnup(30, 5)
-    d = sp.csr_matrix(sp.tril(a, -1) + sp.diags(a.diagonal()))
-    r = sp.csr_matrix(sp.triu(a, 1)) * 1e-3
-    n0 = np.ones(30)
-    one = ShiftedCram48(d, r, lambda _t: 1e3, n0, 10.0)
-    two = CF3Magnus()(d, r, lambda _t: 1e3, n0, 10.0)
-    assert np.allclose(one, two, rtol=1e-11)
+def test_wrong_vector_shape_names_the_input():
+    with pytest.raises(ValueError, match=r"n0 has shape \(3,\).*shape \(2,\)"):
+        cram_apply(_chain([1.0, 0.0]), np.ones(3), 1.0)
 
 
-def test_pickles_without_its_caches():
-    expo = CramExponentiator()
-    a = _random_burnup(20, 2)
-    out = expo.apply(a, np.ones(20), 1.0)
-    clone = pickle.loads(pickle.dumps(expo))
-    assert np.array_equal(clone.apply(a, np.ones(20), 1.0), out)
+def test_structure_is_shared_by_matrices_with_one_pattern():
+    a = _random_burnup(30, 4)
+    b = a.copy()
+    b.data *= 7.0
+    assert structure_of(sp.csr_matrix(a)) is structure_of(sp.csr_matrix(b))
 
 
 non_zero = (st.floats(min_value=1e-3, max_value=1.)

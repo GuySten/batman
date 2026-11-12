@@ -15,9 +15,11 @@ about 1e-15; -7.155311153664576, used here, is the only value that brings
 the approximation to its equioscillation level (checked by the tests).
 
 """
+from enum import IntEnum
+
 import numpy as np
 
-__all__ = ["CRAM_ORDERS", "cram_coefficients"]
+__all__ = ["CRAM_ORDERS", "CramOrder", "cram_coefficients"]
 
 # order: (theta, alpha, alpha0), as (real, imaginary) pairs
 _TABLE = {
@@ -419,16 +421,35 @@ _TABLE = {
     ),
 }
 
-#: CRAM orders available: 4, 8, ..., 48
-CRAM_ORDERS = tuple(sorted(_TABLE))
+
+class CramOrder(IntEnum):
+    """The CRAM orders with coefficients. Plain ints work wherever an order is
+    expected; ``CramOrder(10)`` raises a ValueError."""
+
+    CRAM4 = 4
+    CRAM8 = 8
+    CRAM12 = 12
+    CRAM16 = 16
+    CRAM20 = 20
+    CRAM24 = 24
+    CRAM28 = 28
+    CRAM32 = 32
+    CRAM36 = 36
+    CRAM40 = 40
+    CRAM44 = 44
+    CRAM48 = 48
 
 
-def cram_coefficients(order: int) -> tuple[np.ndarray, np.ndarray, float]:
+#: CRAM orders available: 4, 8, ..., 48, as ints
+CRAM_ORDERS = tuple(int(o) for o in CramOrder)
+
+
+def cram_coefficients(order: CramOrder | int) -> tuple[np.ndarray, np.ndarray, float]:
     """Return the IPF CRAM coefficients of an order.
 
     Parameters
     ----------
-    order - CRAM order, one of :data:`CRAM_ORDERS`.
+    order - CRAM order: a :class:`CramOrder`, or one of the ints in :data:`CRAM_ORDERS`.
 
     Returns
     -------
@@ -437,9 +458,9 @@ def cram_coefficients(order: int) -> tuple[np.ndarray, np.ndarray, float]:
 
     """
     try:
-        theta, alpha, alpha0 = _TABLE[int(order)]
-    except KeyError:
-        raise ValueError(f"CRAM order must be one of {CRAM_ORDERS}, not {order}") from None
+        theta, alpha, alpha0 = _TABLE[CramOrder(order)]
+    except ValueError:
+        raise ValueError(f"CRAM order must be one of {CRAM_ORDERS}, not {order!r}") from None
     theta = np.array([complex(r, i) for r, i in theta], dtype=np.complex128)
     alpha = np.array([complex(r, i) for r, i in alpha], dtype=np.complex128)
     return alpha, theta, float(alpha0)

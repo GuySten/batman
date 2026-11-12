@@ -1,7 +1,7 @@
 """Tools for matrix exponentiation.
 
 The solver of choice is :data:`ShiftedCram48`
-(see :mod:`batman.exponentiators.cram.system`):
+(see :mod:`batman.exponentiators.cram.structural`):
 CRAM-48 in 4 substeps that reuse their factorizations, block triangular
 ordering of the nuclides with factorizations only of the strongly connected
 blocks (none at all for decay), no row pivoting, and shift levels that make
@@ -36,4 +36,4 @@ from batman.exponentiators.protocol import Exponentiator as Exponentiator, FluxF
 IPFCram16 = IPFCramSolver(*cram16_coefficients())
 IPFCram48 = IPFCramSolver(*cram48_coefficients())
 ShiftedCram48 = CramExponentiator(order=48, substeps=4, shifted=True)
-Magnus = CF3Magnus(ShiftedCram48)
+Magnus = CF3Magnus2IPFCRAM(*cram48_coefficients())
