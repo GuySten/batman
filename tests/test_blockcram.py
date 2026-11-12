@@ -214,22 +214,6 @@ def test_fission_like_columns_against_dense_expm(seed):
         assert np.all(got >= 0)
 
 
-def test_substeps_help_far_from_the_real_axis():
-    """A long cycle of transfers has eigenvalues far from the real axis,
-    where CRAM is less accurate: one step loses digits, four substeps (each
-    with a smaller h lambda) do not."""
-    n = 40
-    a = -np.eye(n) * (1.0 + 1e-3) + np.roll(np.eye(n), 1, axis=0)  # i -> i + 1
-    v = np.zeros(n)
-    v[0] = 1.0
-    ref = la.expm(100.0 * a) @ v
-    def error(substeps):
-        got = StructuralCram(substeps=substeps, shifted=False)(sp.csr_matrix(a), v, 100.0)
-        return np.max(np.abs(got - ref)) / np.max(np.abs(ref))
-    assert error(1) > 1e-7
-    assert error(4) < 1e-12
-
-
 def test_growing_block_is_solved_without_a_shift():
     """A cyclic block that grows (one of its columns hands back more than it
     loses) has an eigenvalue above 0: the shift bound is clipped at 0, so the

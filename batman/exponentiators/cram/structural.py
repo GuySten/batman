@@ -66,20 +66,14 @@ The strategy
    that nothing feeds stays exactly 0 (:func:`_factor_poles`).
 4. **Substeps** (A. Isotalo and M. Pusa, Nucl. Sci. Eng. 183 (2016) 65):
    ``exp(A t) = exp(A h)^s`` with ``h = t / s``, reusing the factorizations of
-   step 1 for all ``s`` substeps. CRAM is accurate when no entry changes too
-   much within one step, and substeps limit the change per (sub)step. That
-   helps in two cases. First, entries near 0: compartments that start empty
-   and are fed by fast transitions, as in fresh fuel and in decay (the cases
-   Isotalo and Pusa studied), where plain CRAM's absolute error is far above
-   their value. On the yield-2 daughter of
-   ``test_yield_two_daughter_accurate_relative_to_itself``, one plain CRAM step
-   is off by many orders of magnitude and four are within about 1e-13. Second,
-   blocks whose eigenvalues lie far from the real axis, such as long cycles
-   of transmutations: CRAM is optimal only on the negative real axis, and its
-   error there grows with ``|h lambda|``. On a 40-compartment cycle, one step of
-   100 lifetimes is off by 2e-5 and four substeps are within about 1e-14
-   (``test_substeps_help_far_from_the_real_axis``). Since the
-   factorizations are reused, each extra substep costs only its solves.
+   step 1 for all ``s`` substeps, so each extra substep costs only its solves.
+   CRAM is most accurate when entries change little within one step, and
+   substeps limit the change per substep. Here that matters for the smallest
+   entries, the ones the shift levels correct: in a decay step of irradiated
+   fuel (a fuel-like test chain, against an exact solver), one step left
+   entries below 1e-100 of the largest off by up to 7e4, and four substeps
+   kept every entry within about 1e-13. Larger entries are at round-off
+   either way.
 5. **Shift levels**, which solve the problem above. For any number ``s``,
    ``exp(A t) = exp(-s t) exp((A + s I) t)``. For a compartment whose
    ancestors (the compartments that feed it, directly or not) all empty faster
