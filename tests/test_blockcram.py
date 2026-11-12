@@ -109,6 +109,29 @@ def test_short_lived_daughter_is_accurate_relative_to_itself():
     assert abs(old[1] - exact[1]) > 1e3 * exact[1]  # plain CRAM: bulk-relative
 
 
+def test_yield_two_daughter_accurate_relative_to_itself():
+    """Production above 1 per removal, as in fission (about two products per
+    fission): the parent's column sums to more than 0, and its fast decay
+    still puts the daughter in a shift level. The daughter is exactly twice
+    the Bateman solution, to round-off relative to itself, with or without
+    substeps; without the shift, a single CRAM step is far off."""
+    lam_parent, lam_daughter = 10.0, 1.0
+    a = sp.csr_matrix(np.array([[-lam_parent, 0.0, 0.0],
+                                [2.0 * lam_parent, -lam_daughter, 0.0],
+                                [0.0, lam_daughter, 0.0]]))
+    assert a.sum(axis=0)[0, 0] > 0  # hands on twice what it loses
+    t = 300.0
+    exact = 2.0 * _bateman([lam_parent, lam_daughter], t)  # about [0, 1e-130]
+    n0 = np.array([1.0, 0.0, 0.0])
+    for expm in (StructuralCram(), StructuralCram(substeps=1)):
+        got = expm(a, n0, t)
+        assert got[0] == 0.0
+        assert got[1] == pytest.approx(exact[1], rel=1e-12)
+        assert got[2] == pytest.approx(2.0, rel=1e-14)
+    plain = StructuralCram(substeps=1, shifted=False)(a, n0, t)
+    assert abs(plain[1] - exact[1]) > 1e3 * exact[1]
+
+
 def test_high_shift_levels_do_not_underflow():
     """A nuclide that decays by exp(-760) over one substep, from 1e24 atoms,
     still holds about 1e-306 atoms. Its shift scale exp(-760) underflows as
@@ -161,6 +184,51 @@ def test_against_dense_expm(seed, flux):
         big = np.abs(ref) > 1e-9 * np.abs(ref).sum()
         assert np.allclose(got[big], ref[big], rtol=1e-9, atol=0)
         assert np.all(got >= 0)
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_fission_like_columns_against_dense_expm(seed):
+    """A cyclic heavy part whose members also fission into a tail of
+    products, two products per fission: their columns hand on more than they
+    lose, but no block grows, so the result agrees with dense expm."""
+    rng = np.random.default_rng(seed)
+    heavy, products = 15, 25
+    n = heavy + products
+    a = sp.lil_matrix(_random_burnup(heavy, seed, density=0.2))
+    a.resize((n, n))
+    tail = _random_burnup(products, seed + 100, flux=False)  # decays only
+    a[heavy:, heavy:] = tail
+    for j in range(heavy):
+        sigma = 10.0 ** rng.uniform(-3, 1)
+        yields = 2.0 * rng.dirichlet(np.ones(products))
+        a[heavy:, j] = (sigma * yields)[:, None]
+        a[j, j] -= sigma
+    a = a.tocsr()
+    assert np.max(np.asarray(a.sum(axis=0)).ravel()[:heavy]) > 0
+    n0 = np.r_[10.0 ** rng.uniform(-3, 0, heavy), np.zeros(products)]
+    for t in (1e-2, 1.0, 1e2):
+        ref = la.expm(t * a.toarray()) @ n0
+        got = StructuralCram()(a, n0, t)
+        big = np.abs(ref) > 1e-9 * np.abs(ref).sum()
+        assert np.allclose(got[big], ref[big], rtol=1e-9, atol=0)
+        assert np.all(got >= 0)
+
+
+def test_growing_block_is_solved_without_a_shift():
+    """A cyclic block that grows (one of its columns hands back more than it
+    loses) has an eigenvalue above 0: the shift bound is clipped at 0, so the
+    block is solved by plain CRAM, as accurately as CRAM is there."""
+    a = sp.csr_matrix(np.array([[-1.0, 2.0, 0.0],
+                                [1.0, -1.0, 0.0],
+                                [0.0, 0.5, -0.1]]))
+    assert np.max(np.linalg.eigvals(a.toarray()).real) > 0
+    n0 = np.array([1.0, 0.0, 0.0])
+    for t in (0.5, 3.0):
+        ref = la.expm(t * a.toarray()) @ n0
+        shifted = StructuralCram()(a, n0, t)
+        plain = StructuralCram(shifted=False)(a, n0, t)
+        assert np.array_equal(shifted, plain)
+        assert np.allclose(shifted, ref, rtol=1e-6, atol=0)
 
 
 def test_unreached_nuclides_stay_exactly_zero():

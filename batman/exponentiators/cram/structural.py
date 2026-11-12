@@ -1,15 +1,27 @@
-"""CRAM for compartmental matrices, solved through their sparsity structure.
+"""CRAM for sparse matrices of production and removal rates, solved through
+their sparsity structure.
 
 Usage
 -----
 :class:`StructuralCram` (or the function :func:`cram_apply`) returns
-``exp(A t) v`` for a sparse *compartmental* matrix ``A``: ``A[i, j] >= 0`` for
-``i != j`` is the rate of transfer from compartment ``j`` to compartment ``i``,
-and every column loses at least what it hands on (its diagonal entry is at most
-minus the sum of the rest of the column). It knows nothing about where ``A``
-comes from. In batman, ``A`` is a burnup matrix and the compartments are
-nuclides; :class:`batman.exponentiators.ConstantFlux` forms it from the decay
-and reaction matrices of a step.
+``exp(A t) v`` for a sparse matrix ``A`` whose off-diagonal entries are
+non-negative: ``A[i, j] >= 0`` for ``i != j`` is the rate at which compartment
+``j`` produces compartment ``i``, and ``-A[j, j]`` is the rate at which ``j``
+is removed. A column may hand on *more* than it loses, so the total need not
+be conserved: fission produces about two fission products per fissioning
+nucleus, and alpha decay both a daughter and He-4. The solver knows nothing
+about where ``A`` comes from. In batman, ``A`` is a burnup matrix and the
+compartments are nuclides; :class:`batman.exponentiators.ConstantFlux` forms
+it from the decay and reaction matrices of a step.
+
+Full accuracy needs one more property, which batman's matrices have: inside
+every strongly connected block (see below), a compartment hands back to its
+own block no more than it loses, so no block grows. By Gershgorin's theorem
+on the columns, every eigenvalue of ``A`` then lies in the left half-plane,
+where CRAM is accurate. The extra products of fission and alpha decay do not
+break this, because they leave the parent's block: fission products never
+turn back into actinides, nor He-4 into heavy nuclides. Production above 1
+per removal between blocks is allowed anywhere.
 
 Everything that depends only on *where* ``A`` has nonzero entries is computed
 once per sparsity pattern (:class:`MatrixStructure`) and cached by pattern
@@ -63,13 +75,15 @@ The strategy
    ``exp(-s t)`` is exact. :func:`_shift_levels` finds such compartments,
    groups them by how fast their ancestors empty, and solves each group again
    with its own shift. Only properties of ``A`` itself are needed: its
-   pattern, and the signs of a compartmental matrix.
+   pattern, and the signs of its off-diagonal entries.
 
 With CRAM-48, 4 substeps and shift levels, every compartment is accurate to
 about 1e-13 relative to its own value (``test_decay_chain_against_bateman``,
-``test_high_shift_levels_do_not_underflow`` and the tests around them). For
-matrices that are not compartmental the solver still works, as accurate as
-CRAM is for their eigenvalues.
+``test_high_shift_levels_do_not_underflow`` and the tests around them),
+fission-like production included (``test_yield_two_daughter_accurate_relative_to_itself``).
+If a block can grow (one of its columns hands back to it more than it loses),
+the solver still works, as accurate as CRAM is for that block's eigenvalues,
+and the block gets no shift.
 
 Notation below: ``A`` is the matrix permuted into the structure's order,
 ``h`` the substep length, ``M = h A``, and ``theta_j``, ``alpha_j`` and
@@ -101,7 +115,8 @@ _ORDERING_KW = {"permc_spec": "MMD_AT_PLUS_A", "diag_pivot_thresh": 0.0,
                 "options": {"SymmetricMode": True}}
 
 # exp(-814) is far below the smallest double (about 4.9e-324 = exp(-744.4)),
-# with room for the number of compartments.
+# with room (about 70 e-folds) for the number of compartments and for
+# production above 1 per removal along a chain.
 _UNDERFLOW = 814.0
 
 
@@ -252,9 +267,16 @@ class MatrixStructure:
         between its compartments have not left it, so each compartment's rate
         of leaving the block is its *leak*: the column of the block's part of
         ``-A``, summed (removal minus what goes back into the block). By
-        Gershgorin's theorem on the columns, no mode of the block decays slower
-        than its smallest leak, which this returns (one value per block; exact
-        for single compartments).
+        Gershgorin's theorem on the columns, which needs only non-negative
+        off-diagonal entries, no mode of the block decays slower than its
+        smallest leak, which this returns (one value per block; exact for
+        single compartments).
+
+        Only each block's own columns enter, so what a column produces in
+        *other* blocks does not matter, however much it is (the fission
+        products of an actinide, for example). A block that can grow has a
+        negative leak; the shift levels clip the bound at 0, so such a block
+        gets no shift.
 
         Parameters
         ----------
@@ -500,7 +522,7 @@ def _cram_substeps(f: _Factors, y: np.ndarray, alpha: np.ndarray,
 # a block with mu h in [k width, (k + 1) width), k >= 1, belongs to shift
 # level k. Each level is solved again, together with its active ancestors, as
 # exp(-s t) exp((A + s I) t) with s = k width / h, at most the smallest
-# removal rate in the subsystem, so the shifted matrix never grows.
+# removal rate in the subsystem, so no diagonal entry of A + s I is positive.
 
 
 @dataclass(frozen=True)
@@ -533,7 +555,8 @@ def _assign_shift_levels(st: MatrixStructure, p: sp.csr_matrix, h: float,
     if not (top > 0.0) or not math.isfinite(top):
         return None
     # A block whose ancestors all decay by more than this over a substep
-    # holds less than ``top exp(-cut)``: below the smallest double.
+    # holds less than ``top exp(-cut)``, times the production above 1 per
+    # removal along its chains: below the smallest double.
     cut = math.log(top) + _UNDERFLOW
 
     active = np.zeros(st.n_blocks, dtype=bool)
@@ -657,8 +680,9 @@ def cram_apply(a, v: np.ndarray, t: float, *, order: CramOrder | int = CramOrder
 
     Parameters
     ----------
-    a - Sparse square matrix ``A`` (any SciPy sparse format), compartmental
-        for full accuracy (see the module notes).
+    a - Sparse square matrix ``A`` (any SciPy sparse format) with non-negative
+        off-diagonal entries; for full accuracy, no block of it grows (see
+        the module notes).
     v - Vector, one entry per row of ``A``.
     t - Time step, in the units of the rates in ``A``.
     order - CRAM order (:class:`CramOrder`, or one of the ints 4, 8, ..., 48).
@@ -695,8 +719,9 @@ def cram_apply(a, v: np.ndarray, t: float, *, order: CramOrder | int = CramOrder
 
 
 class StructuralCram:
-    """``exp(A t) v`` for sparse compartmental matrices, by block-structured,
-    shifted CRAM (see the module notes). A :class:`MatrixExponential`.
+    """``exp(A t) v`` for sparse matrices of production and removal rates, by
+    block-structured, shifted CRAM (see the module notes). A
+    :class:`MatrixExponential`.
 
     The default (``order=48, substeps=4, shifted=True``) is shifted CRAM-48:
     every entry of the result is computed to about 1e-13 relative to its own
