@@ -13,13 +13,14 @@ from hypothesis import given, settings
 
 from batman.exponentiators import (
     CRAM_ORDERS,
-    CramExponentiator,
+    ConstantFlux,
     CramOrder,
     IPFCram48,
     ShiftedCram48,
+    StructuralCram,
     cram_coefficients,
 )
-from batman.exponentiators.cram.structural import BurnupStructure, cram_apply, structure_of
+from batman.exponentiators.cram.structural import MatrixStructure, cram_apply, structure_of
 
 
 def _ipf_scalar(order, x):
@@ -48,13 +49,13 @@ def test_unknown_order_is_rejected():
     with pytest.raises(ValueError, match="CRAM order must be one of"):
         cram_coefficients(10)
     with pytest.raises(ValueError, match="CRAM order must be one of"):
-        CramExponentiator(order=10)
+        StructuralCram(order=10)
 
 
 def test_orders_as_enum_or_int():
     a = _chain([1.0, 1e-3, 0.0])
     n0 = np.array([1.0, 0.0, 0.0])
-    assert CramExponentiator(CramOrder.CRAM24).order == 24
+    assert StructuralCram(CramOrder.CRAM24).order == 24
     assert np.array_equal(cram_apply(a, n0, 5.0, order=CramOrder.CRAM24),
                           cram_apply(a, n0, 5.0, order=24))
 
@@ -114,7 +115,7 @@ def test_high_shift_levels_do_not_underflow():
     one number, so it is applied in two halves of exp(-380)."""
     lam = 76.0
     a = _chain([lam, 0.0])
-    got = CramExponentiator(48, substeps=1).apply(a, np.array([1e24, 0.0]), 10.0)
+    got = StructuralCram(48, substeps=1)(a, np.array([1e24, 0.0]), 10.0)
     assert math.exp(-760.0) == 0.0  # the scale as one number
     assert got[0] == pytest.approx(1e24 * float(Decimal(-760).exp()), rel=1e-12)
     assert got[1] == pytest.approx(1e24, rel=1e-14)
@@ -169,23 +170,23 @@ def test_unreached_nuclides_stay_exactly_zero():
     a[:5, 5:] = 0.0
     a = a.tocsr()
     n0 = np.r_[np.zeros(5), np.ones(25)]
-    for expo in (ShiftedCram48, CramExponentiator(24, substeps=1, shifted=False)):
-        out = expo.apply(a, n0, 10.0)
+    for expm in (StructuralCram(), StructuralCram(24, substeps=1, shifted=False)):
+        out = expm(a, n0, 10.0)
         assert np.all(out[:5] == 0.0)
 
 
 def test_structure_is_block_lower_triangular():
     a = _random_burnup(60, 3, density=0.03)
-    st_ = BurnupStructure(a)
+    st_ = MatrixStructure(a)
     p = st_.permuted(sp.csr_matrix(a)).tocoo()
-    blocks = st_.nuc_block
+    blocks = st_.block_of
     assert np.all(blocks[p.row] >= blocks[p.col])
     assert sorted(st_.perm) == list(range(60))
 
 
 def test_decay_matrix_is_acyclic():
-    assert BurnupStructure(_random_burnup(50, 1, flux=False)).acyclic
-    assert not BurnupStructure(_random_burnup(50, 1, flux=True)).acyclic
+    assert MatrixStructure(_random_burnup(50, 1, flux=False)).acyclic
+    assert not MatrixStructure(_random_burnup(50, 1, flux=True)).acyclic
 
 
 def test_flux_and_protocol():
@@ -199,8 +200,34 @@ def test_flux_and_protocol():
     assert np.array_equal(ShiftedCram48(d, r, lambda _t: 1., n0, 0.0), n0)
 
 
-def test_wrong_vector_shape_names_the_input():
-    with pytest.raises(ValueError, match=r"n0 has shape \(3,\).*shape \(2,\)"):
+def test_constant_flux_forms_the_step_matrix():
+    """ConstantFlux hands its matrix exponential d + flux(0) r, samples the
+    flux only at the start of the step, and leaves r out at zero flux."""
+    calls, sampled = [], []
+
+    def expm(a, v, t):
+        calls.append((sp.csr_matrix(a), v, t))
+        return v
+
+    def flux(t):
+        sampled.append(t)
+        return 0.5
+
+    d = _chain([1e-3, 0.0])
+    r = sp.csr_matrix(np.array([[-2e-3, 0.0], [2e-3, 0.0]]))
+    n0 = np.array([1.0, 0.0])
+    step = ConstantFlux(expm)
+    step(d, r, flux, n0, 100.0)
+    a, v, t = calls[-1]
+    assert sampled == [0.0]
+    assert np.array_equal(a.toarray(), (d + 0.5 * r).toarray())
+    assert v is n0 and t == 100.0
+    step(d, r, lambda _t: 0.0, n0, 100.0)
+    assert calls[-1][0].nnz == d.nnz  # the pattern of d alone
+
+
+def test_wrong_vector_shape_says_what_fits():
+    with pytest.raises(ValueError, match=r"vector has shape \(3,\).*shape \(2,\)"):
         cram_apply(_chain([1.0, 0.0]), np.ones(3), 1.0)
 
 
@@ -222,5 +249,5 @@ vec = st.tuples(non_zero, non_zero)
 def test_any_small_matrix_against_expm(m, v, t):
     """Not a burnup matrix: positive eigenvalues, as in test_exp.py."""
     m = np.array(m)
-    got = ShiftedCram48.apply(sp.csr_matrix(m), np.array(v), t)
+    got = StructuralCram()(sp.csr_matrix(m), np.array(v), t)
     assert np.allclose(got, la.expm(t * m) @ np.array(v), rtol=1e-3)

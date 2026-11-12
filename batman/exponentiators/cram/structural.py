@@ -1,29 +1,36 @@
-"""CRAM for burnup matrices, solved through the structure of the burnup graph.
+"""CRAM for compartmental matrices, solved through their sparsity structure.
 
 Usage
 -----
-:func:`cram_apply` returns ``exp(A t) n0`` for a burnup matrix ``A``
-(``A[i, j]`` the rate at which nuclide ``j`` turns into nuclide ``i``, in 1/s).
-:class:`CramExponentiator` (in ``blockcram.py``) wraps it as a batman
-exponentiator. Everything that depends only on *where* ``A`` has nonzero
-entries, that is, on which transmutations exist, is computed once per pattern
-(:func:`structure_of`, :class:`BurnupStructure`) and cached, so the many steps
-of one component reuse it.
+:class:`StructuralCram` (or the function :func:`cram_apply`) returns
+``exp(A t) v`` for a sparse *compartmental* matrix ``A``: ``A[i, j] >= 0`` for
+``i != j`` is the rate of transfer from compartment ``j`` to compartment ``i``,
+and every column loses at least what it hands on (its diagonal entry is at most
+minus the sum of the rest of the column). It knows nothing about where ``A``
+comes from. In batman, ``A`` is a burnup matrix and the compartments are
+nuclides; :class:`batman.exponentiators.ConstantFlux` forms it from the decay
+and reaction matrices of a step.
+
+Everything that depends only on *where* ``A`` has nonzero entries is computed
+once per sparsity pattern (:class:`MatrixStructure`) and cached by pattern
+(:func:`structure_of`), so matrices with the same pattern and new values
+reuse it.
 
 The problem
 -----------
 CRAM approximates ``exp(x)`` on the negative real axis by a rational function
 with a uniform *absolute* error ``alpha0`` (2.3e-47 for CRAM-48). Applied to a
-matrix, the error of ``exp(A t) n0`` is about ``alpha0`` times the largest
-entry of ``n0``, in every nuclide. That is negligible for the bulk of the
-atoms, but not for a nuclide far below the largest population. A short-lived
-daughter of a parent that decays away within the step holds about
-``exp(-lambda t)`` of the parent's atoms, which can be 1e-130 or less, and
-plain CRAM gets it wrong by many orders of magnitude, or makes atoms appear
-where there should be none. ``test_short_lived_daughter_is_accurate_relative_to_itself``
-in ``tests/test_blockcram.py`` shows this on a two-nuclide chain: the previous
-solver, :class:`IPFCramSolver` with CRAM-48, is off by more than 1000x, and
-this module is within 1e-12.
+matrix, the error of ``exp(A t) v`` is about ``alpha0`` times the largest entry
+of ``v``, in every compartment. That is negligible for the large entries of
+the result, but not for an entry far below the largest one. A compartment fed
+only by compartments that empty within the step holds a tiny fraction of the
+initial contents (``exp(-rate t)``, which can be 1e-130 or less), and plain
+CRAM gets it wrong by many orders of magnitude, or produces contents where
+there should be none. In burnup this is a short-lived daughter of a nuclide
+that decays away within the step;
+``test_short_lived_daughter_is_accurate_relative_to_itself`` in
+``tests/test_blockcram.py`` shows plain IPF CRAM-48 off by more than 1000x on
+a two-compartment chain, and this module within 1e-12.
 
 The strategy
 ------------
@@ -35,32 +42,37 @@ The strategy
    over the ``order / 2`` poles ``theta_j`` with residues ``alpha_j``. The
    factors are applied one at a time, so each pole needs one linear solve
    ``(M - theta_j I) x = y`` (:func:`_cram_substeps`).
-2. **Block structure.** The nuclides are ordered by the strongly connected
-   components (*blocks*) of the transmutation graph, parents first, so ``M``
-   is block lower triangular. The solves are then a block forward
-   substitution, and only the diagonal blocks are ever factorized. A decay
-   matrix has no cycles: it is triangular and needs no fill-producing
-   factorization (:class:`BurnupStructure`, :func:`_solve_groups`).
+2. **Block structure.** The compartments are ordered by the strongly
+   connected components (*blocks*) of the graph of ``A`` (an edge ``j -> i``
+   for every ``A[i, j] != 0``), parents first, so ``M`` is block lower
+   triangular. The solves are then a block forward substitution, and only the
+   diagonal blocks are ever factorized. A matrix without cycles is triangular
+   and needs no fill-producing factorization (:class:`MatrixStructure`,
+   :func:`_solve_groups`).
 3. **No row pivoting** (M. Pusa and J. Leppanen, Nucl. Sci. Eng. 175 (2013)
-   250). Every nuclide keeps its own equation as pivot, so a nuclide that
-   nothing feeds stays exactly 0 (:func:`_factor_poles`).
+   250). Every compartment keeps its own equation as pivot, so a compartment
+   that nothing feeds stays exactly 0 (:func:`_factor_poles`).
 4. **Substeps** (A. Isotalo and M. Pusa, Nucl. Sci. Eng. 183 (2016) 65):
    ``exp(A t) = exp(A h)^s`` with ``h = t / s``, reusing the factorizations of
    step 1 for all ``s`` substeps.
 5. **Shift levels**, which solve the problem above. For any number ``s``,
-   ``exp(A t) = exp(-s t) exp((A + s I) t)``. For a nuclide whose ancestors all
-   decay faster than ``s``, the shifted matrix decays slowly, so CRAM's
-   absolute error on it is relative to the nuclide's own scale, and the
-   factor ``exp(-s t)`` is exact. :func:`_shift_levels` finds such nuclides,
-   groups them by how fast their ancestors decay, and solves each group again
-   with its own shift.
+   ``exp(A t) = exp(-s t) exp((A + s I) t)``. For a compartment whose
+   ancestors (the compartments that feed it, directly or not) all empty faster
+   than ``s``, the shifted matrix decays slowly, so CRAM's absolute error on
+   it is relative to the compartment's own scale, and the factor
+   ``exp(-s t)`` is exact. :func:`_shift_levels` finds such compartments,
+   groups them by how fast their ancestors empty, and solves each group again
+   with its own shift. Only properties of ``A`` itself are needed: its
+   pattern, and the signs of a compartmental matrix.
 
-With CRAM-48, 4 substeps and shift levels, every nuclide is accurate to about
-1e-13 relative to its own value (``test_decay_chain_against_bateman``,
-``test_high_shift_levels_do_not_underflow`` and the tests around them).
+With CRAM-48, 4 substeps and shift levels, every compartment is accurate to
+about 1e-13 relative to its own value (``test_decay_chain_against_bateman``,
+``test_high_shift_levels_do_not_underflow`` and the tests around them). For
+matrices that are not compartmental the solver still works, as accurate as
+CRAM is for their eigenvalues.
 
-Notation below: ``A`` is the burnup matrix permuted into the structure's
-order, ``h`` the substep length, ``M = h A``, and ``theta_j``, ``alpha_j`` and
+Notation below: ``A`` is the matrix permuted into the structure's order,
+``h`` the substep length, ``M = h A``, and ``theta_j``, ``alpha_j`` and
 ``alpha0`` the poles, residues and limit at infinity of the CRAM order.
 
 """
@@ -75,13 +87,13 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as sla
 from scipy.sparse import csgraph
 
-from .pusa import CramOrder, cram_coefficients
+from .pusa import CRAM_ORDERS, CramOrder, cram_coefficients
 
-__all__ = ["BurnupStructure", "cram_apply", "shift_width", "structure_of"]
+__all__ = ["MatrixStructure", "StructuralCram", "cram_apply", "shift_width", "structure_of"]
 
 # Diagonal pivots: a pivot threshold of 0 in symmetric mode, so SuperLU never
 # swaps rows. The matrices come in an order that already keeps the fill small
-# (see BurnupStructure), so SuperLU does not order them again.
+# (see MatrixStructure), so SuperLU does not order them again.
 _SPLU_KW = {"permc_spec": "NATURAL", "diag_pivot_thresh": 0.0,
             "options": {"SymmetricMode": True}}
 # Fill-reducing ordering of the cyclic groups, computed once per pattern.
@@ -89,7 +101,7 @@ _ORDERING_KW = {"permc_spec": "MMD_AT_PLUS_A", "diag_pivot_thresh": 0.0,
                 "options": {"SymmetricMode": True}}
 
 # exp(-814) is far below the smallest double (about 4.9e-324 = exp(-744.4)),
-# with room for the number of nuclides.
+# with room for the number of compartments.
 _UNDERFLOW = 814.0
 
 
@@ -97,8 +109,8 @@ def shift_width(order: int) -> float:
     """Width of the shift levels of shifted CRAM, in units of decay over a
     substep (mu h): 20 for CRAM-48 and 10 for lower orders.
 
-    A nuclide at the top of its level is solved with a residual decay of up
-    to exp(-width) over a substep, so the error of CRAM relative to it is
+    A compartment at the top of its level is solved with a residual decay of
+    up to exp(-width) over a substep, so the error of CRAM relative to it is
     about alpha0 * exp(width): 1e-38 for CRAM-48 and 5e-12 for CRAM-16.
 
     """
@@ -107,7 +119,7 @@ def shift_width(order: int) -> float:
 
 def _canonical(a) -> sp.csr_matrix:
     """A float64 CSR copy with sorted indices, no duplicates and no explicit
-    zeros, so that the pattern says which transmutations exist."""
+    zeros, so that the pattern says which transfers exist."""
     a = sp.csr_matrix(a, dtype=np.float64, copy=True)
     a.sum_duplicates()
     a.eliminate_zeros()
@@ -120,32 +132,35 @@ class _SolveGroups:
     """Groups of rows of a block lower triangular matrix, solved one after
     the other: rows ``ptr[k]`` to ``ptr[k+1]`` form group ``k``, which only
     earlier groups feed. ``cyclic[k]`` tells whether the group holds a block
-    of more than one nuclide; if it does not, its own matrix is lower
+    of more than one compartment; if it does not, its own matrix is lower
     triangular."""
     ptr: np.ndarray
     cyclic: np.ndarray
 
 
-class BurnupStructure:
-    """Structural analysis of a burnup matrix: everything that depends only on
-    which of its entries are nonzero, not on their values.
+class MatrixStructure:
+    """Structural analysis of a sparse matrix: everything that depends only
+    on which of its entries are nonzero, not on their values.
 
     It is computed once per pattern and reused for every matrix with that
-    pattern: every time step and flux level of one component, since the
-    values change from step to step but the transmutations that exist do not.
+    pattern (in batman, every time step and flux level of one component: the
+    values change from step to step, but the transfers that exist do not).
 
     Attributes
     ----------
-    n - Number of nuclides.
+    n - Number of compartments (rows).
     perm - New (elimination) order to original index: ``perm[k]`` is the
-           original index of the k-th nuclide.
+           original index of the k-th compartment.
     groups - The solve groups (:class:`_SolveGroups`) in the new order.
     n_blocks - Number of strongly connected components (blocks).
-    nuc_block - Block of every nuclide (new order). Blocks are numbered so
-                that parents come before their children.
+    block_of - Block of every compartment (new order). Blocks are numbered so
+               that parents come before their children.
+    depth_of - Depth of the block of every compartment (new order).
+    cyclic_of - Whether every compartment's block holds more than one
+                compartment (new order).
     block_depth - Depth of every block in the graph of blocks: 0 for a block
                   without parents, else one more than its deepest parent.
-    acyclic - True when every block is a single nuclide (a decay matrix).
+    acyclic - True when every block is a single compartment.
 
     """
 
@@ -153,7 +168,7 @@ class BurnupStructure:
         a = _canonical(a)
         n = a.shape[0]
         if a.shape != (n, n):
-            raise ValueError(f"Burnup matrix must be square, not {a.shape}")
+            raise ValueError(f"The matrix must be square, not {a.shape}")
         self.n = n
         coo = a.tocoo()
         off = coo.row != coo.col
@@ -181,10 +196,10 @@ class BurnupStructure:
         self.n_blocks = len(starts)
         new_of_old = np.empty(n_blocks, dtype=np.intp)
         new_of_old[old_labels[starts]] = np.arange(self.n_blocks)
-        nuc_block = new_of_old[old_labels]
+        block_of = new_of_old[old_labels]
         self.block_depth = depth[old_labels[starts]]
-        nuc_cyclic = sizes[old_labels] > 1
-        self.groups = _solve_groups(self.block_depth[nuc_block], nuc_cyclic)
+        cyclic_of = sizes[old_labels] > 1
+        self.groups = _solve_groups(self.block_depth[block_of], cyclic_of)
 
         # Inside every cyclic group, a fill-reducing order of its blocks (they
         # do not feed each other, so any order of the group is valid).
@@ -196,10 +211,10 @@ class BurnupStructure:
         self.perm = perm
         self.iperm = np.empty(n, dtype=np.intp)
         self.iperm[perm] = np.arange(n)
-        self.nuc_block = nuc_block[local]
-        self.nuc_depth = self.block_depth[self.nuc_block]
-        self.nuc_cyclic = nuc_cyclic[local]
-        self.acyclic = not self.nuc_cyclic.any()
+        self.block_of = block_of[local]
+        self.depth_of = self.block_depth[self.block_of]
+        self.cyclic_of = cyclic_of[local]
+        self.acyclic = not self.cyclic_of.any()
 
         # Permuted pattern, and where each of its entries comes from in A.
         marker = sp.csr_matrix((np.arange(1, a.nnz + 1, dtype=np.float64),
@@ -209,7 +224,7 @@ class BurnupStructure:
         self._p_indptr, self._p_indices = p.indptr, p.indices
         self._data_index = p.data.astype(np.int64) - 1
         p_rows = np.repeat(np.arange(n), np.diff(p.indptr))
-        self._in_block = self.nuc_block[p_rows] == self.nuc_block[p.indices]
+        self._in_block = self.block_of[p_rows] == self.block_of[p.indices]
         self._in_block_cols = p.indices[self._in_block]
 
         # Parent -> child links between blocks, in the new numbering, sorted
@@ -228,18 +243,18 @@ class BurnupStructure:
                               self._p_indptr), shape=a.shape)
 
     def block_decay_bounds(self, p: sp.csr_matrix) -> np.ndarray:
-        """A lower bound on how fast every block decays, for the shift levels.
+        """A lower bound on how fast every block empties, for the shift levels.
 
-        The *decay rate* of a block is the slowest rate at which atoms leave
-        it when nothing feeds it from outside: the smallest decay rate of the
-        modes of its diagonal block of ``A``. For a single nuclide, that is
-        its own removal rate. For a cyclic block, atoms that move between its
-        nuclides have not left it, so each nuclide's rate of leaving the
-        block is its *leak*: the column of the block's part of ``-A``, summed
-        (removal minus what goes back into the block). By Gershgorin's
-        theorem on the columns, no mode of the block decays slower than its
-        smallest leak, which this returns (one value per block; exact for
-        single nuclides).
+        The *decay rate* of a block is the slowest rate at which its contents
+        leave it when nothing feeds it from outside: the smallest decay rate
+        of the modes of its diagonal block of ``A``. For a single compartment,
+        that is its own removal rate. For a cyclic block, contents that move
+        between its compartments have not left it, so each compartment's rate
+        of leaving the block is its *leak*: the column of the block's part of
+        ``-A``, summed (removal minus what goes back into the block). By
+        Gershgorin's theorem on the columns, no mode of the block decays slower
+        than its smallest leak, which this returns (one value per block; exact
+        for single compartments).
 
         Parameters
         ----------
@@ -250,7 +265,7 @@ class BurnupStructure:
                              weights=p.data[self._in_block],
                              minlength=self.n)
         rate = np.full(self.n_blocks, np.inf)
-        np.minimum.at(rate, self.nuc_block, -colsum)
+        np.minimum.at(rate, self.block_of, -colsum)
         return rate
 
     def links_into_depth(self, d: int) -> tuple[np.ndarray, np.ndarray]:
@@ -277,24 +292,24 @@ class BurnupStructure:
         return len(self._link_ptr) - 1
 
 
-def structure_of(a: sp.csr_matrix) -> BurnupStructure:
-    """The :class:`BurnupStructure` of a canonical matrix (see
+def structure_of(a: sp.csr_matrix) -> MatrixStructure:
+    """The :class:`MatrixStructure` of a canonical matrix (see
     :func:`_canonical`), cached by its pattern: the most recent patterns are
-    kept, so the steps of one component analyze their pattern once."""
+    kept, so matrices with a pattern seen before are not analyzed again."""
     return _structure_of_pattern(a.shape[0], a.indptr.dtype.str, a.indptr.tobytes(),
                                  a.indices.dtype.str, a.indices.tobytes())
 
 
 @functools.lru_cache(maxsize=8)
 def _structure_of_pattern(n: int, indptr_dtype: str, indptr: bytes,
-                          indices_dtype: str, indices: bytes) -> BurnupStructure:
+                          indices_dtype: str, indices: bytes) -> MatrixStructure:
     # The structure depends on the pattern only, which (unlike a sparse
     # matrix) is hashable as bytes, so the standard cache keys on it.
     indptr_array = np.frombuffer(indptr, dtype=indptr_dtype)
     indices_array = np.frombuffer(indices, dtype=indices_dtype)
     pattern = sp.csr_matrix((np.ones(len(indices_array)), indices_array, indptr_array),
                             shape=(n, n))
-    return BurnupStructure(pattern)
+    return MatrixStructure(pattern)
 
 
 def _fill_reducing_order(block: sp.csr_matrix) -> np.ndarray:
@@ -333,22 +348,22 @@ def _longest_path_depth(n: int, parent: np.ndarray,
     return depth
 
 
-def _solve_groups(nuc_depth: np.ndarray, nuc_cyclic: np.ndarray) -> _SolveGroups:
-    """Solve groups of nuclides already sorted by depth.
+def _solve_groups(depth_of: np.ndarray, cyclic_of: np.ndarray) -> _SolveGroups:
+    """Solve groups of compartments already sorted by depth.
 
-    Every depth that holds a block of more than one nuclide is a group of its
-    own: its blocks do not feed each other, so its factors have no fill
-    between them. Consecutive depths of single nuclides are merged into one
-    group: their matrix is lower triangular, and its factors have no fill at
-    all in the natural order. A decay matrix is then a single group, solved
-    by one sparse triangular solve per pole.
+    Every depth that holds a block of more than one compartment is a group of
+    its own: its blocks do not feed each other, so its factors have no fill
+    between them. Consecutive depths of single compartments are merged into
+    one group: their matrix is lower triangular, and its factors have no fill
+    at all in the natural order. A matrix without cycles is then a single
+    group, solved by one sparse triangular solve per pole.
 
     """
-    n = len(nuc_depth)
+    n = len(depth_of)
     if not n:
         return _SolveGroups(np.zeros(1, dtype=np.intp), np.zeros(0, dtype=bool))
-    starts = np.flatnonzero(np.r_[True, nuc_depth[1:] != nuc_depth[:-1]])
-    cyclic = np.logical_or.reduceat(nuc_cyclic, starts)
+    starts = np.flatnonzero(np.r_[True, depth_of[1:] != depth_of[:-1]])
+    cyclic = np.logical_or.reduceat(cyclic_of, starts)
     # a depth starts a new group unless it and the depth before are acyclic
     new_group = np.r_[True, cyclic[1:] | cyclic[:-1]]
     ptr = np.r_[starts[new_group], n].astype(np.intp)
@@ -444,7 +459,7 @@ def _cram_substeps(f: _Factors, y: np.ndarray, alpha: np.ndarray,
     one number or one per entry. Only the shift levels use it: a level solved
     with the shifted matrix ``A + s I`` is scaled back by ``exp(-s h)`` per
     substep. That scale is applied as two halves because ``exp(-s h)`` alone
-    can underflow to 0 when the populations it multiplies are large
+    can underflow to 0 when the entries it multiplies are large
     (``test_high_shift_levels_do_not_underflow``).
 
     """
@@ -478,10 +493,10 @@ def _cram_substeps(f: _Factors, y: np.ndarray, alpha: np.ndarray,
 
 # --- Shift levels --------------------------------------------------------
 #
-# After a plain CRAM step, the nuclides whose ancestors all decay fast carry
-# an error of about alpha0 times the largest population, far above their own
+# After a plain CRAM step, the compartments whose ancestors all empty fast
+# carry an error of about alpha0 times the largest entry, far above their own
 # value. They are solved again with a shift. For a block, mu is the slowest
-# decay rate of it and its active ancestors (BurnupStructure.block_decay_bounds);
+# decay rate of it and its active ancestors (MatrixStructure.block_decay_bounds);
 # a block with mu h in [k width, (k + 1) width), k >= 1, belongs to shift
 # level k. Each level is solved again, together with its active ancestors, as
 # exp(-s t) exp((A + s I) t) with s = k width / h, at most the smallest
@@ -494,8 +509,8 @@ class _ShiftLevels:
 
     level - Shift level of every block: 0 for blocks that need no shift (and
             for inactive ones), k >= 1 otherwise.
-    active - Blocks that hold atoms at the start of the step, or that one of
-             their ancestors feeds.
+    active - Blocks that are not empty at the start of the step, or that one
+             of their ancestors feeds.
     decayed - Active blocks whose ancestors all decay by more than the range
               of doubles within a substep: their value is exactly 0.
 
@@ -505,13 +520,13 @@ class _ShiftLevels:
     decayed: np.ndarray
 
 
-def _assign_shift_levels(st: BurnupStructure, p: sp.csr_matrix, h: float,
+def _assign_shift_levels(st: MatrixStructure, p: sp.csr_matrix, h: float,
                          y0: np.ndarray, width: float) -> _ShiftLevels | None:
     """Assign every block of the step from ``y0`` its shift level.
 
-    Returns None when there is nothing to correct: no atoms at the start
-    (CRAM is exact on a zero vector), or populations that are not finite
-    (they overflowed before this step, so its result is not finite anyway).
+    Returns None when there is nothing to correct: a zero vector (CRAM is
+    exact on it), or entries that are not finite (they overflowed before this
+    step, so its result is not finite anyway).
 
     """
     top = float(np.max(np.abs(y0))) if len(y0) else 0.0
@@ -522,7 +537,7 @@ def _assign_shift_levels(st: BurnupStructure, p: sp.csr_matrix, h: float,
     cut = math.log(top) + _UNDERFLOW
 
     active = np.zeros(st.n_blocks, dtype=bool)
-    active[st.nuc_block[y0 != 0.0]] = True
+    active[st.block_of[y0 != 0.0]] = True
     mu = np.maximum(st.block_decay_bounds(p), 0.0)
     for d in range(1, st.n_depths):  # parents first, so their mu is final
         parents, children = st.links_into_depth(d)
@@ -541,14 +556,14 @@ def _assign_shift_levels(st: BurnupStructure, p: sp.csr_matrix, h: float,
 class _StackedLevels:
     """The shift levels of a step as one block diagonal system.
 
-    Each level is a *copy*: the nuclides of its blocks and of their active
+    Each level is a *copy*: the compartments of its blocks and of their active
     ancestors, with the level's shift. All copies are stacked into one matrix,
     ordered by depth (the copies do not feed each other), so they are solved
     together, as any other matrix, with one factorization per pole.
 
     m - The stacked matrix ``h (A + s_copy I)``, one diagonal block per copy.
     groups - Its solve groups.
-    nuclide - Nuclide (structure order) of every stacked row.
+    entry - Compartment (structure order) of every stacked row.
     half - ``exp(-s_copy h / 2)`` of every stacked row (see :func:`_cram_substeps`).
     result - The stacked rows that are members of their level (not just an
              ancestor brought along); their values are the shifted results.
@@ -556,12 +571,12 @@ class _StackedLevels:
     """
     m: sp.csr_matrix
     groups: _SolveGroups
-    nuclide: np.ndarray
+    entry: np.ndarray
     half: np.ndarray
     result: np.ndarray
 
 
-def _stack_shift_levels(st: BurnupStructure, p: sp.csr_matrix, h: float,
+def _stack_shift_levels(st: MatrixStructure, p: sp.csr_matrix, h: float,
                         levels: _ShiftLevels, width: float) -> _StackedLevels:
     """Build the stacked system of the shift levels above 0."""
     level_numbers = np.unique(levels.level[levels.level > 0])
@@ -574,78 +589,78 @@ def _stack_shift_levels(st: BurnupStructure, p: sp.csr_matrix, h: float,
         reached = in_copy[children] & levels.active[parents, None]
         np.logical_or.at(in_copy, parents, reached)
 
-    # stacked rows: (copy, nuclide) pairs, by depth, then copy, then nuclide
-    copy, nuclide = np.nonzero(in_copy[st.nuc_block].T)
-    order = np.lexsort((nuclide, copy, st.nuc_depth[nuclide]))
-    copy, nuclide = copy[order], nuclide[order]
-    size = len(nuclide)
+    # stacked rows: (copy, compartment) pairs, by depth, then copy, then compartment
+    copy, entry = np.nonzero(in_copy[st.block_of].T)
+    order = np.lexsort((entry, copy, st.depth_of[entry]))
+    copy, entry = copy[order], entry[order]
+    size = len(entry)
     row_of = np.full((len(level_numbers), st.n), -1, dtype=np.int64)
-    row_of[copy, nuclide] = np.arange(size)
+    row_of[copy, entry] = np.arange(size)
 
     # the shift of each copy: its level, at most its smallest removal rate
     diag = p.diagonal()
     smallest_removal = np.full(len(level_numbers), np.inf)
-    np.minimum.at(smallest_removal, copy, -diag[nuclide])
+    np.minimum.at(smallest_removal, copy, -diag[entry])
     shift = np.minimum(level_numbers * width / h, smallest_removal)
 
     # the entries of A inside every copy, then the shifts on the diagonal
     pc = p.tocoo()
-    inside = in_copy[st.nuc_block[pc.row]] & in_copy[st.nuc_block[pc.col]]
-    entry, entry_copy = np.nonzero(inside)
-    rows = np.r_[row_of[entry_copy, pc.row[entry]], np.arange(size)]
-    cols = np.r_[row_of[entry_copy, pc.col[entry]], np.arange(size)]
-    vals = np.r_[h * pc.data[entry], h * shift[copy]]
+    inside = in_copy[st.block_of[pc.row]] & in_copy[st.block_of[pc.col]]
+    nz, nz_copy = np.nonzero(inside)
+    rows = np.r_[row_of[nz_copy, pc.row[nz]], np.arange(size)]
+    cols = np.r_[row_of[nz_copy, pc.col[nz]], np.arange(size)]
+    vals = np.r_[h * pc.data[nz], h * shift[copy]]
     m = sp.csr_matrix((vals, (rows, cols)), shape=(size, size))
     m.sort_indices()
 
     return _StackedLevels(
         m=m,
-        groups=_solve_groups(st.nuc_depth[nuclide], st.nuc_cyclic[nuclide]),
-        nuclide=nuclide,
+        groups=_solve_groups(st.depth_of[entry], st.cyclic_of[entry]),
+        entry=entry,
         half=np.exp(-0.5 * shift * h)[copy],
-        result=levels.level[st.nuc_block[nuclide]] == level_numbers[copy],
+        result=levels.level[st.block_of[entry]] == level_numbers[copy],
     )
 
 
-def _shift_levels(st: BurnupStructure, p: sp.csr_matrix, h: float,
+def _shift_levels(st: MatrixStructure, p: sp.csr_matrix, h: float,
                   substeps: int, y0: np.ndarray, y: np.ndarray,
                   alpha: np.ndarray, theta: np.ndarray, alpha0: float,
                   width: float) -> None:
     """Shifted CRAM: solve again, in place in ``y`` (structure order), the
-    nuclides whose ancestors all decay fast over a substep of length ``h``
-    (see the notes above :class:`_ShiftLevels`), and set to exactly 0 those
-    whose value is below the range of doubles.
+    compartments whose ancestors all empty fast over a substep of length
+    ``h`` (see the notes above :class:`_ShiftLevels`), and set to exactly 0
+    those whose value is below the range of doubles.
 
     ``test_short_lived_daughter_is_accurate_relative_to_itself`` shows a case
-    where this is needed: without it the daughter is wrong by orders of
-    magnitude, with it the daughter is within 1e-12 of the exact value.
+    where this is needed: without it the fed compartment is wrong by orders
+    of magnitude, with it it is within 1e-12 of the exact value.
 
     """
     levels = _assign_shift_levels(st, p, h, y0, width)
     if levels is None:
         return
     if levels.decayed.any():
-        y[levels.decayed[st.nuc_block]] = 0.0
+        y[levels.decayed[st.block_of]] = 0.0
     if not (levels.level > 0).any():
         return
     stacked = _stack_shift_levels(st, p, h, levels, width)
     factors = _Factors(stacked.m, stacked.groups, theta)
-    u = _cram_substeps(factors, y0[stacked.nuclide], alpha, alpha0, substeps,
+    u = _cram_substeps(factors, y0[stacked.entry], alpha, alpha0, substeps,
                        half=stacked.half)
-    y[stacked.nuclide[stacked.result]] = u[stacked.result]
+    y[stacked.entry[stacked.result]] = u[stacked.result]
 
 
-def cram_apply(a, n0: np.ndarray, t: float, *, order: CramOrder | int = CramOrder.CRAM48,
+def cram_apply(a, v: np.ndarray, t: float, *, order: CramOrder | int = CramOrder.CRAM48,
                substeps: int = 4, width: float | None = None,
-               structure: BurnupStructure | None = None) -> np.ndarray:
-    """Compute ``exp(A t) n0`` with block-structured CRAM.
+               structure: MatrixStructure | None = None) -> np.ndarray:
+    """Compute ``exp(A t) v`` with block-structured CRAM.
 
     Parameters
     ----------
-    a - Burnup matrix (any SciPy sparse format), ``A[i, j]`` the rate at which
-        nuclide ``j`` turns into nuclide ``i``.
-    n0 - Initial vector, one entry per nuclide.
-    t - Time step, in the units of the rates.
+    a - Sparse square matrix ``A`` (any SciPy sparse format), compartmental
+        for full accuracy (see the module notes).
+    v - Vector, one entry per row of ``A``.
+    t - Time step, in the units of the rates in ``A``.
     order - CRAM order (:class:`CramOrder`, or one of the ints 4, 8, ..., 48).
     substeps - Number of substeps the factorizations are reused over.
     width - Width of the shift levels (shifted CRAM); 0 turns shifting off.
@@ -655,25 +670,81 @@ def cram_apply(a, n0: np.ndarray, t: float, *, order: CramOrder | int = CramOrde
 
     Returns
     -------
-    The vector after ``t``, in the original order.
+    The vector ``exp(A t) v``, in the original order.
 
     """
     alpha, theta, alpha0 = cram_coefficients(order)
     a = _canonical(a)
-    n0 = np.asarray(n0, dtype=np.float64)
-    if n0.shape != (a.shape[0],):
-        raise ValueError(f"n0 has shape {n0.shape}, but the matrix has {a.shape[0]} "
-                         f"nuclides: n0 needs one entry per nuclide, shape ({a.shape[0]},)")
-    if t == 0 or not len(n0):
-        return n0.copy()
+    v = np.asarray(v, dtype=np.float64)
+    if v.shape != (a.shape[0],):
+        raise ValueError(f"The vector has shape {v.shape}, but the matrix has {a.shape[0]} "
+                         f"rows: it needs one entry per row, shape ({a.shape[0]},)")
+    if t == 0 or not len(v):
+        return v.copy()
     st = structure_of(a) if structure is None else structure
     width = shift_width(order) if width is None else float(width)
     p = st.permuted(a)
     h = t / substeps
-    y0 = n0[st.perm]
+    y0 = v[st.perm]
     y = _cram_substeps(_Factors(h * p, st.groups, theta), y0, alpha, alpha0, substeps)
     if width > 0:
         _shift_levels(st, p, h, substeps, y0, y, alpha, theta, alpha0, width)
     out = np.empty_like(y)
     out[st.perm] = y
     return out
+
+
+class StructuralCram:
+    """``exp(A t) v`` for sparse compartmental matrices, by block-structured,
+    shifted CRAM (see the module notes). A :class:`MatrixExponential`.
+
+    The default (``order=48, substeps=4, shifted=True``) is shifted CRAM-48:
+    every entry of the result is computed to about 1e-13 relative to its own
+    value, down to 1e-280 of the largest one, with no negative values and no
+    entry appearing where nothing can feed it. Plain CRAM, including
+    :class:`IPFCramSolver`, is only accurate relative to the largest entry: its
+    error is about ``alpha0`` times the largest entry of ``v``, in every entry.
+
+    Parameters
+    ----------
+    order - CRAM order (:class:`CramOrder`, or one of the ints 4, 8, ..., 48).
+            From 24 on, plain CRAM is at the round-off of double precision
+            for the largest entries; 48 is needed where large entries empty
+            within a step and their rates weigh the result.
+    substeps - Substeps per call, sharing the factorizations.
+    shifted - Whether to solve again, with a shift, the entries fed only by
+              compartments that empty fast (their accuracy relative to their
+              own value).
+    width - Width of the shift levels; None picks 20 for CRAM-48 and 10 below.
+
+    Examples
+    --------
+    >>> import numpy as np, scipy.sparse as sp
+    >>> a = sp.csr_matrix(np.array([[-np.log(2), 0.], [np.log(2), 0.]]))
+    >>> [round(float(x), 12) for x in StructuralCram()(a, np.array([1., 0.]), 1.)]
+    [0.5, 0.5]
+
+    """
+
+    def __init__(self, order: CramOrder | int = CramOrder.CRAM48, substeps: int = 4,
+                 shifted: bool = True, width: float | None = None):
+        if substeps < 1:
+            raise ValueError(f"substeps must be at least 1, not {substeps}")
+        try:
+            self.order = CramOrder(order)
+        except ValueError:
+            raise ValueError(f"CRAM order must be one of {CRAM_ORDERS}, not {order!r}") from None
+        self.substeps = substeps
+        self.shifted = shifted
+        self.width = (0.0 if not shifted
+                      else shift_width(order) if width is None else float(width))
+
+    def __repr__(self) -> str:
+        return (f"{type(self).__name__}(order={int(self.order)}, substeps={self.substeps}, "
+                f"shifted={self.shifted})")
+
+    def __call__(self, a, v: np.ndarray, t: float) -> np.ndarray:
+        """Return ``exp(a t) v``."""
+        a = _canonical(a)
+        return cram_apply(a, v, t, order=self.order, substeps=self.substeps,
+                          width=self.width, structure=structure_of(a))

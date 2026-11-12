@@ -4,5 +4,5 @@
 from .ipfcram import *
 from .coefficients import *
 from .pusa import *
-from .blockcram import *
+from .structural import StructuralCram as StructuralCram
 from .magnus import *
